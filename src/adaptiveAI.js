@@ -113,4 +113,22 @@ export class AdaptiveAI {
     this.analysis = null;
     this.summary = null;
   }
+
+  /**
+   * Pre-seed the strategy from a memory record saved at the end of a previous round.
+   * This gives the AI a head-start on rounds 2+.
+   * @param {object} memoryRecord - record from Memory.getLatest()
+   */
+  seedFromMemory(memoryRecord) {
+    if (!memoryRecord || !memoryRecord.strategy) return;
+    if (memoryRecord.strategy === 'NONE') return;
+    this.currentStrategy = {
+      name:       memoryRecord.strategy,
+      confidence: memoryRecord.confidence || 0.5,
+      reason:     memoryRecord.reason || 'Learned from previous round.',
+    };
+    // Apply immediately so the enemy starts adapted
+    this.applyStrategy();
+  }
 }
+

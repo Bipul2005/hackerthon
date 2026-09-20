@@ -78,6 +78,15 @@ export class HUD {
     this._statusText = scene.add.text(W / 2, H / 2, '', STATUS_STYLE)
       .setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(200).setAlpha(0);
 
+    // ---- Dialogue Text (bottom-left) ----
+    this._dialogueText = scene.add.text(PADDING, H - PADDING - BAR_H - 30, '', {
+      fontFamily: 'Orbitron, monospace',
+      fontSize: '12px',
+      color: '#ffdd55',
+      stroke: '#000000',
+      strokeThickness: 2,
+    }).setScrollFactor(0).setDepth(304);
+
     // ---- Small hint bottom-center ----
     this._hintText = scene.add.text(W / 2, H - PADDING, 'WASD · Move    SPACE · Attack    SHIFT · Dash', {
       ...LABEL_STYLE,
@@ -188,10 +197,23 @@ export class HUD {
   }
 
   /**
-   * Flash a brief combat event label (HIT / MISS / DASH etc.)
-   * @param {string} msg
-   * @param {string} [color='#00e5ff']
+   * Show an AI dialogue line in the bottom-left HUD area.
+   * @param {string} msg - dialogue text
+   * @param {number} [duration=3000] - auto-hide after ms (0 = stay)
    */
+  showDialogue(msg, duration = 3000) {
+    this._dialogueText.setText(msg).setAlpha(1);
+    if (duration > 0) {
+      this.scene.time.delayedCall(duration, () => {
+        this.scene.tweens.add({
+          targets: this._dialogueText,
+          alpha: 0,
+          duration: 400,
+        });
+      });
+    }
+  }
+
   flashCombatEvent(msg, color = '#00e5ff') {
     this._combatText.setText(msg).setColor(color).setAlpha(1);
     this.scene.tweens.add({

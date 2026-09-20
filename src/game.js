@@ -1,19 +1,15 @@
 /**
- * game.js — Main Game Scenes (Stage 2: Combat System)
+ * game.js — Main Game Scenes
  *
- * Contains two Phaser scenes:
- *   StartScene — Title screen with "Start Game" button
- *   GameScene  — Main combat arena with full combat loop
+ * Stage 8: Three-Round Game System
+ *   START SCREEN → ROUND 1 (AI observes) → AI LEARNED screen
+ *   → ROUND 2 (AI adapts) → AI LEARNED screen → ROUND 3 (final)
+ *   → RESULT SCREEN
  *
- * Stage 2 additions:
- *   - SPACE / SHIFT key bindings for attack and dash
- *   - Player reference injected into scene for enemy knockback
- *   - Tracker passed to player for behavior event recording
- *   - HUD combat event flashes wired to player/enemy events
- *   - Enemy HP updated to 100
- *
- * The Game Loop:
- *   StartScene → GameScene → (Win/Lose) → StartScene
+ * Stage 9: AI Personality & Dialogue
+ *   DialogueManager generates short deterministic lines from real analysis.
+ *   Dialogue triggers at round start, analysis ticks, strategy changes,
+ *   and the final result screen.
  */
 
 import Phaser from 'phaser';
@@ -23,6 +19,8 @@ import { HUD } from './ui.js';
 import { BehaviorTracker } from './tracker.js';
 import { BehaviorAnalyzer } from './analyzer.js';
 import { AdaptiveAI } from './adaptiveAI.js';
+import { Memory } from './memory.js';
+import { DialogueManager } from './dialogue.js';
 
 // ================================================================
 //  START SCENE
@@ -68,9 +66,9 @@ export class StartScene extends Phaser.Scene {
 
     // ---- Feature bullets ----
     const features = [
-      '⬡  Adaptive AI Enemy',
-      '⬡  Behavior Pattern Recognition',
-      '⬡  Dynamic Strategy Switching',
+      '\u2b21  Adaptive AI Enemy',
+      '\u2b21  Behavior Pattern Recognition',
+      '\u2b21  Dynamic Strategy Switching',
     ];
     const featureTexts = features.map((f, i) =>
       this.add.text(W / 2, H * 0.5 + i * 26, f, {
@@ -82,7 +80,7 @@ export class StartScene extends Phaser.Scene {
     );
 
     // ---- Controls ----
-    const controls = this.add.text(W / 2, H * 0.655, 'WASD · Move    SPACE · Attack    SHIFT · Dash', {
+    const controls = this.add.text(W / 2, H * 0.655, 'WASD \u00b7 Move    SPACE \u00b7 Attack    SHIFT \u00b7 Dash', {
       fontFamily: 'Orbitron, monospace',
       fontSize: '12px',
       color: '#445566',
@@ -125,12 +123,14 @@ export class StartScene extends Phaser.Scene {
       this.tweens.add({ targets: btnText, scaleX: 1, scaleY: 1, duration: 100 });
     });
     btnBg.on('pointerdown', () => {
+      // Reset shared memory on each new game
+      GameScene.resetMemory();
       this.cameras.main.flash(200, 0, 229, 255);
       this.time.delayedCall(300, () => this.scene.start('GameScene', { round: 1 }));
     });
 
     // ---- Version tag ----
-    this.add.text(W - 10, H - 10, 'v0.2.0 — Stage 2', {
+    this.add.text(W - 10, H - 10, 'v0.9.0 \u2014 ADAPT', {
       fontFamily: 'Inter, sans-serif',
       fontSize: '10px',
       color: '#334455',
@@ -161,14 +161,21 @@ export class StartScene extends Phaser.Scene {
 
 const ARENA_PADDING = 60;
 const ARENA_FLOOR_COLOR = 0x0d0d1a;
+const MAX_ROUNDS = 3;
 
 export class GameScene extends Phaser.Scene {
+  // ---- Shared memory (persists across rounds) ----
+  static _memory = null;
+  static resetMemory() { GameScene._memory = null; }
+
   constructor() {
     super({ key: 'GameScene' });
   }
 
   init(data) {
     this.round = data?.round || 1;
+    if (!GameScene._memory) GameScene._memory = new Memory();
+    this.memory = GameScene._memory;
   }
 
   create() {
@@ -179,25 +186,33 @@ export class GameScene extends Phaser.Scene {
     this._buildArena(W, H);
 
     // ---- Behavior Tracker & Analyzer ----
-    // Instantiated first so it can be passed to player
     this.tracker = new BehaviorTracker();
     this.analyzer = new BehaviorAnalyzer();
-
-    // Start round tracking
     this.tracker.recordRoundStart();
 
-    // ---- Spawn player (center-left) ----
+    // ---- Spawn entities ----
     this.player = new Player(this, W * 0.28, H / 2);
     this.player.setTracker(this.tracker);
-
-    // ---- Spawn enemy (center-right) ----
     this.enemy = new Enemy(this, W * 0.72, H / 2);
 
     // ---- Adaptive AI ----
     this.adaptiveAI = new AdaptiveAI(this.tracker, this.enemy);
 
+    // On rounds 2+, seed the AI with what it learned
+    if (this.round > 1) {
+      const prev = this.memory.getLatest();
+      if (prev && typeof this.adaptiveAI.seedFromMemory === 'function') {
+        this.adaptiveAI.seedFromMemory(prev);
+      }
+    }
+
     // ---- HUD ----
     this.hud = new HUD(this, this.round);
+
+    // ---- Dialogue ----
+    this.dialogueManager = new DialogueManager();
+    this.dialogueManager.startRound(this.round);
+    this._dialogueTimer = 0;
 
     // ---- Key bindings ----
     this.keys = {
@@ -217,45 +232,71 @@ export class GameScene extends Phaser.Scene {
     });
 
     // ---- Game state ----
-    this.gameOver = false;
-    this.gameWon  = false;
+    this.gameOver     = false;
+    this.gameWon      = false;
+    this._roundEnding = false;
+    this._lastStrategy = null;
+    this._analyzeTimer = 0;
 
-    // Round start banner
-    this.hud.showStatus(`ROUND ${this.round}`, '#ffaa00', 1500);
+    // Round start banner + opening line
+    this.hud.showStatus(`ROUND ${this.round}`, '#ffaa00', 1800);
+    const openingLine = this._roundOpeningLine();
+    if (openingLine) {
+      this.time.delayedCall(2100, () => this.hud.showDialogue(openingLine, 3500));
+    }
 
-    // R to restart after end
+    // R to restart at any end state
     this.input.keyboard.on('keydown-R', () => {
       if (this.gameOver || this.gameWon) {
+        GameScene.resetMemory();
         this.scene.start('StartScene');
       }
     });
 
-    // Debug: print tracker summary on ESC
+    // ESC debug dump
     this.input.keyboard.on('keydown-ESC', () => {
-      console.log('[ADAPT Tracker Summary]', this.tracker.getSummary());
-      console.log('[ADAPT Analyzer Result]', this.analyzer.analyze(this.tracker.getSummary()));
+      console.log('[ADAPT Tracker]', this.tracker.getSummary());
+      console.log('[ADAPT Analyzer]', this.analyzer.analyze(this.tracker.getSummary()));
+      console.log('[ADAPT Memory]', this.memory.getAll());
     });
-
-    this._analyzeTimer = 0;
   }
 
+  // ----------------------------------------------------------------
+  //  Round opening dialogue
+  // ----------------------------------------------------------------
+  _roundOpeningLine() {
+    if (this.round === 1) return "Let's see what you have for me.";
+    const prev = this.memory.getLatest();
+    if (this.round === 2) {
+      if (!prev) return "I've been watching.";
+      const dir = prev.behavior?.preferredDirection;
+      if (dir && dir !== 'BALANCED') {
+        return `You prefer ${dir.toLowerCase()} attacks. That won't work again.`;
+      }
+      return "I know your patterns. Let's begin.";
+    }
+    if (this.round === 3) {
+      return "Final round. I know what you're going to try.";
+    }
+    return null;
+  }
+
+  // ----------------------------------------------------------------
+  //  Arena construction
+  // ----------------------------------------------------------------
   _buildArena(W, H) {
     const gfx = this.add.graphics();
 
-    // Floor
     gfx.fillStyle(ARENA_FLOOR_COLOR, 1);
     gfx.fillRect(0, 0, W, H);
 
-    // Grid overlay
     gfx.lineStyle(1, 0x151530, 1);
     for (let x = 0; x < W; x += 32) gfx.lineBetween(x, 0, x, H);
     for (let y = 0; y < H; y += 32) gfx.lineBetween(0, y, W, y);
 
-    // Outer border
     gfx.lineStyle(3, 0x00e5ff, 0.4);
     gfx.strokeRect(ARENA_PADDING, ARENA_PADDING, W - ARENA_PADDING * 2, H - ARENA_PADDING * 2);
 
-    // Corner accents
     const accentLen = 24;
     const corners = [
       [ARENA_PADDING, ARENA_PADDING],
@@ -271,50 +312,60 @@ export class GameScene extends Phaser.Scene {
       gfx.lineBetween(cx, cy, cx, cy + sy * accentLen);
     });
 
-    // Center divider (faint)
     gfx.lineStyle(1, 0x00e5ff, 0.08);
     gfx.lineBetween(W / 2, ARENA_PADDING, W / 2, H - ARENA_PADDING);
 
-    // Set world bounds to arena interior
     this.physics.world.setBounds(
       ARENA_PADDING, ARENA_PADDING,
       W - ARENA_PADDING * 2, H - ARENA_PADDING * 2
     );
   }
 
-  update(time, delta) {
-    if (this.gameOver || this.gameWon) return;
+  // ----------------------------------------------------------------
+  //  Update loop
+  // ----------------------------------------------------------------
+  update(_time, delta) {
+    if (this.gameOver || this.gameWon || this._roundEnding) return;
 
-    // Update entities — pass keys, enemy reference, and delta
     this.player.update(this.keys, this.enemy, delta);
     this.enemy.update(this.player, delta);
-
-    // Record continuous tracker stats
     this.tracker.update(delta, this.player, this.enemy);
 
-    // Update Analyzer & UI Debug Panel (twice a second)
+    // Analyze + AI + dialogue tick (every 500 ms)
     this._analyzeTimer += delta;
     if (this._analyzeTimer >= 500) {
       this._analyzeTimer = 0;
-      const summary = this.tracker.getSummary();
+
+      const summary  = this.tracker.getSummary();
       const analysis = this.analyzer.analyze(summary);
-      // Adaptive AI processing
+
       this.adaptiveAI.analyzePlayer();
       this.adaptiveAI.chooseStrategy();
       this.adaptiveAI.applyStrategy();
-      // Pass strategy info to HUD via analysis object
+
       const strategyInfo = this.adaptiveAI.getCurrentStrategy();
       const analysisWithStrategy = { ...analysis, strategyInfo };
       this.hud.updateDebugPanel(summary, analysisWithStrategy);
+
+      // Dialogue generation
+      const line = this.dialogueManager.generate(analysisWithStrategy, summary);
+      if (line) this.hud.showDialogue(line, 3500);
+
+      // Strategy-change quip
+      const newStrat = strategyInfo?.name;
+      if (this._lastStrategy && newStrat && newStrat !== this._lastStrategy) {
+        this.hud.showDialogue("Interesting\u2026 you've changed your approach.", 3500);
+      }
+      this._lastStrategy = newStrat;
     }
 
-    // Update HUD
+    // HUD bars
     this.hud.update(
       this.player.healthFraction, this.enemy.healthFraction,
       this.player.health, this.enemy.health
     );
 
-    // ---- Win / Lose checks ----
+    // Win / lose checks
     if (!this.enemy.alive && !this.gameWon) {
       this.gameWon = true;
       this._onWin();
@@ -324,31 +375,123 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  // ----------------------------------------------------------------
+  //  Helper: build "AI Learned" banner text
+  // ----------------------------------------------------------------
+  _buildLearnedText(analysis, strategy) {
+    const dir   = analysis?.metrics?.preferredDirection || 'BALANCED';
+    const style = analysis?.metrics?.playStyle || 'BALANCED';
+    const strat = strategy?.name || 'OBSERVING';
+    const conf  = strategy?.confidence != null
+      ? `${(strategy.confidence * 100).toFixed(0)}%`
+      : '—';
+    return [
+      '\u{1F9E0}  AI LEARNED',
+      '',
+      `You prefer ${dir} attacks.`,
+      `You fight ${style}.`,
+      '',
+      `Strategy: ${strat}`,
+      `Confidence: ${conf}`,
+    ].join('\n');
+  }
+
+  // ----------------------------------------------------------------
+  //  Win handler
+  // ----------------------------------------------------------------
   _onWin() {
+    this._roundEnding = true;
     this.tracker.recordRoundEnd();
-    this.hud.showStatus('ROUND CLEAR', '#00e5ff');
-    // Reset Adaptive AI for next round
+
+    const summary  = this.tracker.getSummary();
+    const analysis = this.analyzer.analyze(summary);
+    const strategy = this.adaptiveAI.getCurrentStrategy();
+
+    // Save round to memory
+    this.memory.addRecord({
+      round:      this.round,
+      behavior:   analysis.metrics,
+      strategy:   strategy?.name  || 'NONE',
+      confidence: strategy?.confidence || 0,
+      reason:     strategy?.reason || '',
+    });
+
     this.adaptiveAI.reset();
-    // Print tracker summary on win
-    console.log('[ADAPT] Round complete. Tracker summary:', this.tracker.getSummary());
-    console.log('[ADAPT] Analyzer:', this.analyzer.analyze(this.tracker.getSummary()));
-    console.log('[ADAPT] Strategy selected:', this.adaptiveAI.getCurrentStrategy());
-    this.time.delayedCall(2500, () => {
-      this.hud.showStatus('PRESS R TO RETURN\nTO TITLE', '#7799bb');
+
+    console.log('[ADAPT] Round', this.round, 'won. Summary:', summary);
+    console.log('[ADAPT] Strategy:', strategy);
+
+    if (this.round < MAX_ROUNDS) {
+      // Between-round: show ROUND CLEAR → AI Learned → next round
+      this.hud.showStatus('ROUND CLEAR', '#00e5ff', 1800);
+      this.time.delayedCall(2000, () => {
+        const learnedText = this._buildLearnedText(analysis, strategy);
+        this.hud.showStatus(learnedText, '#ffdd55', 0);
+        this.time.delayedCall(4500, () => {
+          this.hud.showStatus(`ROUND ${this.round + 1} INCOMING\u2026`, '#ffaa00', 1600);
+          this.time.delayedCall(1900, () => {
+            this.scene.start('GameScene', { round: this.round + 1 });
+          });
+        });
+      });
+    } else {
+      // Final round victory
+      const finalLine = this.dialogueManager.finalMessage(this.memory);
+      this.hud.showStatus('\u{1F3C6}  VICTORY', '#00e5ff', 2500);
+      this.time.delayedCall(2600, () => {
+        this.hud.showDialogue(finalLine, 0);
+        this.hud.showStatus(this._buildResultScreen(true), '#00ffaa', 0);
+      });
+      this.time.delayedCall(7000, () => {
+        this.hud.showStatus('PRESS R TO PLAY AGAIN', '#7799bb', 0);
+      });
+    }
+  }
+
+  // ----------------------------------------------------------------
+  //  Lose handler
+  // ----------------------------------------------------------------
+  _onLose() {
+    this._roundEnding = true;
+    this.tracker.recordRoundEnd();
+    this.cameras.main.shake(600, 0.025);
+
+    const summary  = this.tracker.getSummary();
+    const analysis = this.analyzer.analyze(summary);
+    const strategy = this.adaptiveAI.getCurrentStrategy();
+
+    this.memory.addRecord({
+      round:      this.round,
+      behavior:   analysis.metrics,
+      strategy:   strategy?.name  || 'NONE',
+      confidence: strategy?.confidence || 0,
+      reason:     strategy?.reason || '',
+    });
+
+    this.adaptiveAI.reset();
+
+    this.hud.showDialogue('Unexpected.', 3200);
+    this.hud.showStatus('GAME OVER', '#ff3d71', 2200);
+    this.time.delayedCall(2600, () => {
+      this.hud.showStatus(this._buildResultScreen(false), '#ff7755', 0);
+    });
+    this.time.delayedCall(7000, () => {
+      this.hud.showStatus('PRESS R TO PLAY AGAIN', '#7799bb', 0);
     });
   }
 
-  _onLose() {
-    this.tracker.recordRoundEnd();
-    this.cameras.main.shake(600, 0.025);
-    this.hud.showStatus('GAME OVER', '#ff3d71');
-    // Reset Adaptive AI for next round
-    this.adaptiveAI.reset();
-    console.log('[ADAPT] Game over. Tracker summary:', this.tracker.getSummary());
-    console.log('[ADAPT] Analyzer:', this.analyzer.analyze(this.tracker.getSummary()));
-    console.log('[ADAPT] Strategy selected:', this.adaptiveAI.getCurrentStrategy());
-    this.time.delayedCall(2000, () => {
-      this.hud.showStatus('PRESS R TO RETURN\nTO TITLE', '#7799bb');
+  // ----------------------------------------------------------------
+  //  Result screen summary
+  // ----------------------------------------------------------------
+  _buildResultScreen(won) {
+    const all = this.memory.getAll();
+    const lines = ['\u2500\u2500\u2500 MATCH SUMMARY \u2500\u2500\u2500', ''];
+    all.forEach(r => {
+      const pct = r.confidence != null ? ` (${(r.confidence * 100).toFixed(0)}%)` : '';
+      lines.push(`Round ${r.round}: ${r.strategy}${pct}`);
     });
+    lines.push('');
+    lines.push(won ? '\u{1F3C6}  YOU DEFEATED ADAPT' : '\u{1F480}  ADAPT LEARNED TOO WELL');
+    return lines.join('\n');
   }
 }
