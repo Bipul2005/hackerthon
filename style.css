@@ -62,3 +62,45 @@ html, body {
   background: var(--color-primary);
   border-radius: 3px;
 }
+
+/* ── Fullscreen button ──────────────────────────────────────────── */
+#fullscreen-btn {
+  position: fixed;
+  top: 12px;
+  right: 14px;
+  z-index: 9999;
+
+  /* Base appearance */
+  background: rgba(0, 229, 255, 0.08);
+  border: 1px solid rgba(0, 229, 255, 0.25);
+  border-radius: 6px;
+  color: rgba(0, 229, 255, 0.5);
+  font-size: 18px;
+  line-height: 1;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+
+  /* Fade to near-invisible during play */
+  opacity: 0.25;
+  transition: opacity 0.2s ease, background 0.2s ease, color 0.2s ease,
+              transform 0.15s ease, box-shadow 0.2s ease;
+}
+
+#fullscreen-btn:hover,
+#fullscreen-btn:focus-visible {
+  opacity: 1;
+  background: rgba(0, 229, 255, 0.18);
+  border-color: rgba(0, 229, 255, 0.7);
+  color: #00e5ff;
+  transform: scale(1.1);
+  box-shadow: 0 0 12px rgba(0, 229, 255, 0.4);
+  outline: none;
+}
+
+#fullscreen-btn:active {
+  transform: scale(0.96);
+}

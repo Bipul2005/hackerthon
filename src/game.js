@@ -235,14 +235,25 @@ export class GameScene extends Phaser.Scene {
     this.gameOver     = false;
     this.gameWon      = false;
     this._roundEnding = false;
+    this._roundHandled = false; // guard: prevents double win/lose handling
     this._lastStrategy = null;
     this._analyzeTimer = 0;
 
     // Round start banner + opening line
-    this.hud.showStatus(`ROUND ${this.round}`, '#ffaa00', 1800);
-    const openingLine = this._roundOpeningLine();
-    if (openingLine) {
-      this.time.delayedCall(2100, () => this.hud.showDialogue(openingLine, 3500));
+    if (this.round === 3) {
+      // Dramatic Final Battle intro
+      this.time.delayedCall(300, () => this.hud.showFinalBattleBanner());
+      this.cameras.main.flash(600, 255, 30, 80, false, null, null, 0.35);
+      this.time.delayedCall(500, () => {
+        const openingLine = this._roundOpeningLine();
+        if (openingLine) this.hud.showDialogue(openingLine, 5000);
+      });
+    } else {
+      this.hud.showStatus(`ROUND ${this.round}`, '#ffaa00', 1800);
+      const openingLine = this._roundOpeningLine();
+      if (openingLine) {
+        this.time.delayedCall(2100, () => this.hud.showDialogue(openingLine, 3500));
+      }
     }
 
     // R to restart only after final result (loss or final win)
@@ -260,7 +271,7 @@ export class GameScene extends Phaser.Scene {
       console.log('[ADAPT Memory]', this.memory.getAll());
     });
 
-    // Clean up key listeners on scene shutdown
+    // Clean up key listeners and tweens on scene shutdown
     this.events.once('shutdown', () => {
       if (this.input?.keyboard) {
         this.input.keyboard.off('keydown-SPACE');
@@ -268,6 +279,8 @@ export class GameScene extends Phaser.Scene {
         this.input.keyboard.off('keydown-R');
         this.input.keyboard.off('keydown-ESC');
       }
+      // Stop all tweens to prevent orphaned animations after scene ends
+      this.tweens.killAll();
     });
   }
 
@@ -277,6 +290,7 @@ export class GameScene extends Phaser.Scene {
   _roundOpeningLine() {
     if (this.round === 1) return "Let's see what you have for me.";
     const prev = this.memory.getLatest();
+    const all  = this.memory.getAll();
     if (this.round === 2) {
       if (!prev) return "I've been watching.";
       const dir = prev.behavior?.preferredDirection;
@@ -286,7 +300,19 @@ export class GameScene extends Phaser.Scene {
       return "I know your patterns. Let's begin.";
     }
     if (this.round === 3) {
-      return "Final round. I know what you're going to try.";
+      // Build a message from accumulated memory across both rounds
+      if (all.length >= 2) {
+        const strats = all.map(r => r.strategy).filter(s => s && s !== 'NONE');
+        if (strats.length > 0) {
+          const last = strats[strats.length - 1];
+          if (last === 'PROTECT_LEFT')   return 'I have memorized your left strikes. They will not land.';
+          if (last === 'PROTECT_RIGHT')  return 'Your right-side attacks are predictable now.';
+          if (last === 'ANTI_RUSH')      return 'You rush. I will use that against you.';
+          if (last === 'ANTI_DASH')      return 'Your dash has a pattern. I have mapped it.';
+          if (last === 'ANTI_DEFENSIVE') return 'You hide. Not this time. I will find you.';
+        }
+      }
+      return 'Final round. I know everything about how you fight.';
     }
     return null;
   }
@@ -442,6 +468,7 @@ export class GameScene extends Phaser.Scene {
         this.time.delayedCall(4500, () => {
           this.hud.showStatus(`ROUND ${this.round + 1} INCOMING\u2026`, '#ffaa00', 1600);
           this.time.delayedCall(1900, () => {
+            if (this.enemy?.clearProjectiles) this.enemy.clearProjectiles();
             this.scene.start('GameScene', { round: this.round + 1 });
           });
         });

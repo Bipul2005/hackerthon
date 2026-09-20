@@ -10,6 +10,16 @@
  * Uses Phaser Graphics + Text objects pinned to the camera (setScrollFactor(0)).
  */
 
+/**
+ * Safe-cancel helper: works for both Phaser TimerEvent (.remove) and Tween (.stop).
+ * @param {Phaser.Time.TimerEvent|Phaser.Tweens.Tween|null} t
+ */
+function _cancelTimer(t) {
+  if (!t) return;
+  if (typeof t.stop === 'function') t.stop();
+  else if (typeof t.remove === 'function') t.remove();
+}
+
 const HUD_STYLE = {
   fontFamily: 'Orbitron, monospace',
   fontSize: '13px',
@@ -162,13 +172,20 @@ export class HUD {
    * @param {number} [duration=0] - Auto-hide after ms (0 = stay)
    */
   showStatus(msg, color = '#00e5ff', duration = 0) {
+    // Safe-cancel: TimerEvent uses .remove(), Tween uses .stop()
+    _cancelTimer(this._statusTimer);
+    _cancelTimer(this._statusFadeTween);
+    this._statusTimer = null;
+    this._statusFadeTween = null;
+
     this._statusText.setText(msg).setColor(color).setAlpha(1);
     if (duration > 0) {
-      this.scene.time.delayedCall(duration, () => {
-        this.scene.tweens.add({
+      this._statusTimer = this.scene.time.delayedCall(duration, () => {
+        this._statusFadeTween = this.scene.tweens.add({
           targets: this._statusText,
           alpha: 0,
           duration: 400,
+          onComplete: () => { this._statusFadeTween = null; },
         });
       });
     }
@@ -184,13 +201,20 @@ export class HUD {
    * @param {number} [duration=3000] - auto-hide after ms (0 = stay)
    */
   showDialogue(msg, duration = 3000) {
+    // Safe-cancel: TimerEvent uses .remove(), Tween uses .stop()
+    _cancelTimer(this._dialogueTimer);
+    _cancelTimer(this._dialogueFadeTween);
+    this._dialogueTimer = null;
+    this._dialogueFadeTween = null;
+
     this._dialogueText.setText(msg).setAlpha(1);
     if (duration > 0) {
-      this.scene.time.delayedCall(duration, () => {
-        this.scene.tweens.add({
+      this._dialogueTimer = this.scene.time.delayedCall(duration, () => {
+        this._dialogueFadeTween = this.scene.tweens.add({
           targets: this._dialogueText,
           alpha: 0,
           duration: 400,
+          onComplete: () => { this._dialogueFadeTween = null; },
         });
       });
     }
@@ -215,11 +239,65 @@ export class HUD {
     // Permanent visual panel removed for clean gameplay.
   }
 
+  /**
+   * Show a dramatic FINAL BATTLE banner for Round 3.
+   * Larger text, red color, brief pulse.
+   */
+  showFinalBattleBanner() {
+    const W = this.scene.scale.width;
+    const H = this.scene.scale.height;
+    if (this._finalBanner) return; // already shown
+
+    const banner = this.scene.add.text(W / 2, H / 2 - 60, 'ROUND 3', {
+      fontFamily: 'Orbitron, monospace',
+      fontSize: '52px',
+      color: '#ff3d71',
+      stroke: '#000000',
+      strokeThickness: 8,
+      align: 'center',
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(210).setAlpha(0);
+
+    const sub = this.scene.add.text(W / 2, H / 2 + 10, 'FINAL BATTLE', {
+      fontFamily: 'Orbitron, monospace',
+      fontSize: '22px',
+      color: '#ffaa00',
+      stroke: '#000000',
+      strokeThickness: 5,
+      align: 'center',
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(210).setAlpha(0);
+
+    this._finalBanner = { banner, sub };
+
+    this.scene.tweens.add({
+      targets: [banner, sub],
+      alpha: 1,
+      scaleX: 1.05,
+      scaleY: 1.05,
+      duration: 400,
+      ease: 'Back.Out',
+      yoyo: true,
+      hold: 1400,
+      onComplete: () => {
+        this.scene.tweens.add({
+          targets: [banner, sub],
+          alpha: 0,
+          duration: 500,
+          onComplete: () => { banner.destroy(); sub.destroy(); this._finalBanner = null; },
+        });
+      },
+    });
+  }
+
   destroy() {
     [
       this._playerBarBg, this._playerBarFill, this._playerLabel, this._playerHPText,
       this._enemyBarBg, this._enemyBarFill, this._enemyLabel, this._enemyHPText,
-      this._roundText, this._statusText, this._hintText, this._combatText
+      this._roundText, this._statusText, this._hintText, this._combatText,
+      this._dialogueText,
     ].forEach(o => o && o.destroy());
+    _cancelTimer(this._statusTimer);
+    _cancelTimer(this._statusFadeTween);
+    _cancelTimer(this._dialogueTimer);
+    _cancelTimer(this._dialogueFadeTween);
   }
 }

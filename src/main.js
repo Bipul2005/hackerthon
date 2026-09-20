@@ -20,6 +20,7 @@ const config = {
     autoCenter: Phaser.Scale.CENTER_BOTH,
     width: 960,
     height: 640,
+    fullscreenTarget: 'game-container',
   },
   physics: {
     default: 'arcade',

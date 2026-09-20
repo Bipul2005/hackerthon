@@ -9,6 +9,47 @@
   </head>
   <body>
     <div id="game-container"></div>
+
+    <!-- Fullscreen toggle button — always visible, works from any scene -->
+    <button id="fullscreen-btn" title="Toggle Fullscreen (F)" aria-label="Toggle Fullscreen">⛶</button>
+
     <script type="module" src="src/main.js"></script>
+
+    <script>
+      const btn = document.getElementById('fullscreen-btn');
+
+      function isFullscreen() {
+        return !!(document.fullscreenElement || document.webkitFullscreenElement);
+      }
+
+      function toggleFullscreen() {
+        if (isFullscreen()) {
+          (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+        } else {
+          const el = document.documentElement;
+          (el.requestFullscreen || el.webkitRequestFullscreen).call(el);
+        }
+      }
+
+      btn.addEventListener('click', toggleFullscreen);
+
+      // F key toggles fullscreen (only when not typing in an input)
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'f' || e.key === 'F') {
+          if (document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
+            e.preventDefault();
+            toggleFullscreen();
+          }
+        }
+      });
+
+      // Update button icon when fullscreen state changes
+      document.addEventListener('fullscreenchange', updateIcon);
+      document.addEventListener('webkitfullscreenchange', updateIcon);
+      function updateIcon() {
+        btn.textContent = isFullscreen() ? '✕' : '⛶';
+        btn.title = isFullscreen() ? 'Exit Fullscreen (F)' : 'Toggle Fullscreen (F)';
+      }
+    </script>
   </body>
 </html>

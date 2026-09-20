@@ -20,6 +20,8 @@ import {
   spawnHitSpark,
   spawnEnemyHitReaction,
   spawnDamageNumber,
+  spawnEnemyProjectile,
+  spawnProjectileImpact,
 } from './effects.js';
 
 // ─── Config ────────────────────────────────────────────────────────────────────
@@ -72,10 +74,14 @@ export class Enemy {
 
     this.alive = true;
 
-    this._attackCooldown = 0; // ms remaining before next attack
-    this._isWindingUp = false; // telegraphing an attack
+    this._attackCooldown = 0;
+    this._isWindingUp = false;
     this._windupTimer = 0;
-    this._recoveryTimer = 0;  // post-attack recovery period
+    this._recoveryTimer = 0;
+
+    // Projectile tracking (ranged attack system)
+    this._projectiles = []; // array of { sprite, lifetime, damage }
+    this._projAttackCooldown = 0; // separate cooldown for ranged
 
     // Intelligent movement state
     this.strafeDir = Math.random() < 0.5 ? 1 : -1;
@@ -142,8 +148,12 @@ export class Enemy {
       return;
     }
 
+    // ── Projectile hit detection ──────────────────────────────────
+    this._checkProjectileHits(player, delta);
+
     // Tick timers
     if (this._attackCooldown > 0) this._attackCooldown -= delta;
+    if (this._projAttackCooldown > 0) this._projAttackCooldown -= delta;
     if (this.dodgeCooldown > 0)  this.dodgeCooldown -= delta;
     if (this._recoveryTimer > 0) this._recoveryTimer -= delta;
 
@@ -200,8 +210,12 @@ export class Enemy {
     this.sprite.setRotation(angleToPlayer + Math.PI / 2);
 
     // ── Combat Movement & Attack Decision ─────────────────────────
+    // Melee attack: enemy is very close
     if (dist <= ENEMY_CONFIG.attackRange + 4 && this._attackCooldown <= 0) {
       this._beginWindup();
+    } else if (dist > ENEMY_CONFIG.attackRange + 5 && dist < 260 && this._projAttackCooldown <= 0 && !this._isWindingUp) {
+      // Ranged attack: fire a projectile when in mid-range
+      this._fireProjectile(player);
     } else {
       this._handleCombatMovement(player, dx, dy, dist, angleToPlayer);
     }
@@ -309,6 +323,69 @@ export class Enemy {
     }
   }
 
+  // ─── Projectile System ────────────────────────────────────────────────────────
+
+  _fireProjectile(player) {
+    const round = this.scene.round || 1;
+    // Aim error in radians: R1 wide, R2 moderate, R3 tighter
+    const maxError = round === 3 ? 0.18 : round === 2 ? 0.30 : 0.42;
+    const aimError = (Math.random() - 0.5) * 2 * maxError;
+
+    const dx = player.x - this.sprite.x;
+    const dy = player.y - this.sprite.y;
+    const baseAngle = Math.atan2(dy, dx);
+    const fireAngle = baseAngle + aimError;
+
+    const dmg = Math.round((this._baseDamage ?? ENEMY_CONFIG.attackDamage) * 0.75); // projectile deals 75% of melee
+    const proj = spawnEnemyProjectile(this.scene, this.sprite.x, this.sprite.y, fireAngle, 310, dmg);
+    this._projectiles.push(proj);
+
+    // Cooldown scales with round
+    const baseProjCooldown = round === 3 ? 900 : round === 2 ? 1200 : 1500;
+    this._projAttackCooldown = this._baseCooldown
+      ? Math.round(baseProjCooldown * this._diffScale.cooldown)
+      : baseProjCooldown;
+
+    // Visual: brief aim flash
+    this.sprite.setTint(0xff0055);
+    this.scene.time.delayedCall(120, () => {
+      if (this.sprite?.active && !this.isDodging) this.sprite.clearTint();
+    });
+  }
+
+  _checkProjectileHits(player, delta) {
+    if (!player || !player.alive || this._projectiles.length === 0) return;
+    const hitRadius = 22; // px — generous hitbox for fair feel
+
+    this._projectiles = this._projectiles.filter(proj => {
+      if (!proj.sprite?.active) return false; // already destroyed
+
+      const dx = proj.sprite.x - player.x;
+      const dy = proj.sprite.y - player.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist < hitRadius) {
+        // Hit player!
+        spawnProjectileImpact(this.scene, proj.sprite.x, proj.sprite.y);
+        spawnDamageNumber(this.scene, player.x, player.y - 20, proj.damage, '#ff3d71');
+        player.takeDamage(proj.damage);
+        proj.lifetime?.remove();
+        proj.sprite.destroy();
+        return false; // remove from array
+      }
+      return true; // keep tracking
+    });
+  }
+
+  /** Destroy all live projectiles (called at round end / destroy) */
+  clearProjectiles() {
+    for (const proj of this._projectiles) {
+      proj.lifetime?.remove();
+      if (proj.sprite?.active) proj.sprite.destroy();
+    }
+    this._projectiles = [];
+  }
+
   // ─── Attack Lifecycle ────────────────────────────────────────────────────────
 
   _beginWindup() {
@@ -409,6 +486,7 @@ export class Enemy {
   }
 
   destroy() {
+    this.clearProjectiles();
     this._rangeGfx.destroy();
     this.sprite.destroy();
   }

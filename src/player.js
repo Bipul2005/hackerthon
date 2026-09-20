@@ -141,8 +141,8 @@ export class Player {
     this.shadow = scene.add.image(x, y + 4, 'player_shadow');
     this.shadow.setDepth(9);
 
-    // Idle pulse animation (breathing)
-    this.scene.tweens.add({
+    // Idle pulse animation (breathing) — stored so we can stop it on destroy
+    this._idleTween = this.scene.tweens.add({
       targets: this.sprite,
       scale: { from: 1, to: 1.02 },
       yoyo: true,
@@ -485,6 +485,8 @@ export class Player {
 
   destroy() {
     if (this._flashTimer) this._flashTimer.remove();
+    if (this._idleTween) this._idleTween.stop();
+    if (this.shadow?.active) this.shadow.destroy();
     this._cdGfx.destroy();
     this._aimGfx.destroy();
     this._crosshairGfx.destroy();

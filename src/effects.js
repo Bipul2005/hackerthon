@@ -5,11 +5,13 @@
  * No external assets required — all effects use Phaser Graphics primitives.
  *
  * Effects provided:
- *   spawnAttackSlash()  — Directional slash arc shown when player attacks
- *   spawnHitSpark()     — Burst of particles at hit point
- *   spawnMissEffect()   — Subtle whiff indicator
- *   spawnDashTrail()    — Ghost afterimage during dash
- *   spawnEnemyReaction()— Visual knockback flash on enemy hit
+ *   spawnAttackSlash()      — Directional slash arc shown when player attacks
+ *   spawnHitSpark()         — Burst at hit point (1 Graphics object for performance)
+ *   spawnMissEffect()       — Subtle whiff indicator
+ *   spawnDashTrail()        — Ghost afterimage during dash
+ *   spawnEnemyHitReaction() — Visual knockback flash on enemy hit
+ *   spawnEnemyProjectile()  — Enemy fires an energy bolt toward the player
+ *   spawnProjectileImpact() — Small burst when a projectile hits or expires
  */
 
 // Direction vectors for attack slash positioning
@@ -82,47 +84,30 @@ export function spawnAttackSlash(scene, x, y, dir) {
  * @param {number} [color=0xffaa00] - Spark color
  */
 export function spawnHitSpark(scene, x, y, color = 0xffaa00) {
-  const NUM_PARTICLES = 8;
-  const SPEED = 90;
-
-  for (let i = 0; i < NUM_PARTICLES; i++) {
-    const angle = (i / NUM_PARTICLES) * Math.PI * 2;
-    const gfx = scene.add.graphics();
-    gfx.setDepth(55);
+  // PERF: single Graphics object instead of 9 separate ones
+  const NUM = 5;
+  const SPREAD = 14;
+  const gfx = scene.add.graphics();
+  gfx.setDepth(55);
+  for (let i = 0; i < NUM; i++) {
+    const a = (i / NUM) * Math.PI * 2 + Math.random() * 0.4;
+    const r = 2 + Math.random() * 2;
+    const px = Math.cos(a) * SPREAD * (0.5 + Math.random() * 0.5);
+    const py = Math.sin(a) * SPREAD * (0.5 + Math.random() * 0.5);
     gfx.fillStyle(color, 1);
-    gfx.fillCircle(0, 0, Phaser.Math.Between(2, 4));
-    gfx.setPosition(x, y);
-
-    const vx = Math.cos(angle) * SPEED * (0.6 + Math.random() * 0.8);
-    const vy = Math.sin(angle) * SPEED * (0.6 + Math.random() * 0.8);
-
-    scene.tweens.add({
-      targets: gfx,
-      x: x + vx * 0.25,
-      y: y + vy * 0.25,
-      alpha: 0,
-      scaleX: 0.2,
-      scaleY: 0.2,
-      duration: Phaser.Math.Between(150, 280),
-      ease: 'Quad.Out',
-      onComplete: () => gfx.destroy(),
-    });
+    gfx.fillCircle(px, py, r);
   }
-
-  // Ring flash
-  const ring = scene.add.graphics();
-  ring.setDepth(54);
-  ring.lineStyle(3, color, 0.8);
-  ring.strokeCircle(0, 0, 10);
-  ring.setPosition(x, y);
+  gfx.lineStyle(2, color, 0.7);
+  gfx.strokeCircle(0, 0, 10);
+  gfx.setPosition(x, y);
   scene.tweens.add({
-    targets: ring,
-    scaleX: 2.5,
-    scaleY: 2.5,
+    targets: gfx,
+    scaleX: 2.0,
+    scaleY: 2.0,
     alpha: 0,
     duration: 220,
     ease: 'Quad.Out',
-    onComplete: () => ring.destroy(),
+    onComplete: () => gfx.destroy(),
   });
 }
 
@@ -162,17 +147,17 @@ export function spawnMissEffect(scene, x, y, dir) {
 export function spawnDashTrail(scene, x, y, rotation) {
   const gfx = scene.add.graphics();
   gfx.setDepth(8);
-  gfx.fillStyle(0x00e5ff, 0.35);
-  gfx.fillRect(-20, -20, 40, 40);
+  gfx.fillStyle(0x00e5ff, 0.25);
+  gfx.fillRoundedRect(-10, -16, 20, 32, 4);
   gfx.setPosition(x, y);
   gfx.setRotation(rotation);
 
   scene.tweens.add({
     targets: gfx,
     alpha: 0,
-    scaleX: 0.6,
-    scaleY: 0.6,
-    duration: 200,
+    scaleX: 0.5,
+    scaleY: 0.5,
+    duration: 170,
     ease: 'Linear',
     onComplete: () => gfx.destroy(),
   });
@@ -226,5 +211,72 @@ export function spawnDamageNumber(scene, x, y, amount, color = '#ffffff') {
     duration: 700,
     ease: 'Quad.Out',
     onComplete: () => text.destroy(),
+  });
+}
+
+/**
+ * Spawn an enemy energy bolt projectile toward the given angle.
+ * Returns { sprite, lifetime, damage } so the enemy can track and clean up.
+ *
+ * @param {Phaser.Scene} scene
+ * @param {number} x
+ * @param {number} y
+ * @param {number} angle - radians (caller should add aim error if desired)
+ * @param {number} [speed=310]
+ * @param {number} [damage=12]
+ */
+export function spawnEnemyProjectile(scene, x, y, angle, speed = 310, damage = 12) {
+  if (!scene.textures.exists('enemy_bolt')) {
+    const g = scene.make.graphics({ x: 0, y: 0, add: false });
+    g.fillStyle(0xff3d71, 0.18);
+    g.fillCircle(8, 8, 8);
+    g.fillStyle(0xff7799, 1);
+    g.fillCircle(8, 8, 4);
+    g.fillStyle(0xffffff, 0.85);
+    g.fillCircle(8, 8, 1.5);
+    g.generateTexture('enemy_bolt', 16, 16);
+    g.destroy();
+  }
+
+  const bolt = scene.physics.add.sprite(x, y, 'enemy_bolt');
+  bolt.setDepth(30);
+  bolt.body.allowGravity = false;
+  bolt.setVelocity(Math.cos(angle) * speed, Math.sin(angle) * speed);
+  bolt.setRotation(angle);
+
+  const lifetime = scene.time.delayedCall(1800, () => {
+    if (bolt?.active) {
+      spawnProjectileImpact(scene, bolt.x, bolt.y);
+      bolt.destroy();
+    }
+  });
+
+  return { sprite: bolt, lifetime, damage };
+}
+
+/**
+ * Small impact burst when a projectile hits or expires.
+ * @param {Phaser.Scene} scene
+ * @param {number} x
+ * @param {number} y
+ * @param {number} [color=0xff3d71]
+ */
+export function spawnProjectileImpact(scene, x, y, color = 0xff3d71) {
+  const gfx = scene.add.graphics();
+  gfx.setDepth(58);
+  gfx.fillStyle(color, 0.8);
+  gfx.fillCircle(0, 0, 5);
+  gfx.lineStyle(2, color, 0.5);
+  gfx.strokeCircle(0, 0, 10);
+  gfx.setPosition(x, y);
+
+  scene.tweens.add({
+    targets: gfx,
+    scaleX: 2.0,
+    scaleY: 2.0,
+    alpha: 0,
+    duration: 200,
+    ease: 'Quad.Out',
+    onComplete: () => gfx.destroy(),
   });
 }
