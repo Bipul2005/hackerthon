@@ -102,6 +102,15 @@ export class HUD {
       lineSpacing: 4,
     }).setScrollFactor(0).setDepth(301);
 
+    // ---- AI Brain Panel (Below Debug) ----
+    this._brainBg = scene.add.graphics().setScrollFactor(0).setDepth(302).setAlpha(0.85);
+    this._brainText = scene.add.text(W - 250, 200, 'AI BRAIN\n...', {
+      fontFamily: 'Orbitron, monospace',
+      fontSize: '10px',
+      color: '#ff77ff',
+      lineSpacing: 4,
+    }).setScrollFactor(0).setDepth(303);
+
     this._barY_player = H - PADDING - BAR_H;
     this._barX_enemy = W - PADDING - BAR_W;
 
