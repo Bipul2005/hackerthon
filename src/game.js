@@ -259,6 +259,16 @@ export class GameScene extends Phaser.Scene {
       console.log('[ADAPT Analyzer]', this.analyzer.analyze(this.tracker.getSummary()));
       console.log('[ADAPT Memory]', this.memory.getAll());
     });
+
+    // Clean up key listeners on scene shutdown
+    this.events.once('shutdown', () => {
+      if (this.input?.keyboard) {
+        this.input.keyboard.off('keydown-SPACE');
+        this.input.keyboard.off('keydown-SHIFT');
+        this.input.keyboard.off('keydown-R');
+        this.input.keyboard.off('keydown-ESC');
+      }
+    });
   }
 
   // ----------------------------------------------------------------
@@ -400,6 +410,8 @@ export class GameScene extends Phaser.Scene {
   //  Win handler
   // ----------------------------------------------------------------
   _onWin() {
+    if (this._roundHandled) return;
+    this._roundHandled = true;
     this._roundEnding = true;
     this.tracker.recordRoundEnd();
 
@@ -452,6 +464,8 @@ export class GameScene extends Phaser.Scene {
   //  Lose handler
   // ----------------------------------------------------------------
   _onLose() {
+    if (this._roundHandled) return;
+    this._roundHandled = true;
     this._roundEnding = true;
     this.tracker.recordRoundEnd();
     this.cameras.main.shake(600, 0.025);

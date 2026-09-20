@@ -36,6 +36,18 @@ export const ENEMY_CONFIG = {
   knockbackForce: 180,  // px/s applied to player on hit
 };
 
+/**
+ * Returns per-round difficulty multipliers.
+ * Round 1: baseline, Round 2: moderate boost, Round 3: full aggression.
+ */
+export function getDifficultyScale(round) {
+  switch (round) {
+    case 2:  return { speed: 1.15, damage: 1.1,  cooldown: 0.85, windup: 0.9,  dodge: 0.08, recovery: 0.85 };
+    case 3:  return { speed: 1.35, damage: 1.25, cooldown: 0.60, windup: 0.70, dodge: 0.20, recovery: 0.55 };
+    default: return { speed: 1.0,  damage: 1.0,  cooldown: 1.0,  windup: 1.0,  dodge: 0.0,  recovery: 1.0  };
+  }
+}
+
 // ─── Enemy Class ──────────────────────────────────────────────────────────────
 
 export class Enemy {
@@ -48,7 +60,16 @@ export class Enemy {
     this.scene = scene;
     this.health = ENEMY_CONFIG.maxHealth;
     this.maxHealth = ENEMY_CONFIG.maxHealth;
-    this.speed = ENEMY_CONFIG.speed;
+
+    // Apply round difficulty scaling immediately
+    const round = scene.round || 1;
+    this._diffScale = getDifficultyScale(round);
+    this.speed = ENEMY_CONFIG.speed * this._diffScale.speed;
+    this._baseDamage = Math.round(ENEMY_CONFIG.attackDamage * this._diffScale.damage);
+    this._baseCooldown = Math.round(ENEMY_CONFIG.attackCooldown * this._diffScale.cooldown);
+    this._baseWindup = Math.round(ENEMY_CONFIG.windupDuration * this._diffScale.windup);
+    this._baseRecovery = Math.round(400 * this._diffScale.recovery);
+
     this.alive = true;
 
     this._attackCooldown = 0; // ms remaining before next attack
@@ -204,9 +225,8 @@ export class Enemy {
     if (diff > Math.PI) diff = Math.PI * 2 - diff;
 
     if (diff < 0.8) {
-      // Determine dodge chance based on round / strategy
-      const round = this.scene.round || 1;
-      let dodgeChance = 0.15 + round * 0.15; // R1: 0.30, R2: 0.45, R3: 0.60
+      // Dodge chance: base from difficulty scale + strategy bonus
+      let dodgeChance = 0.25 + (this._diffScale?.dodge || 0);
       if (this.strategy?.name === 'ANTI_RUSH' || this.strategy?.name === 'ANTI_DASH') {
         dodgeChance += 0.15;
       }
@@ -293,8 +313,8 @@ export class Enemy {
 
   _beginWindup() {
     this._isWindingUp = true;
-    this._windupTimer = ENEMY_CONFIG.windupDuration;
-    this._attackCooldown = ENEMY_CONFIG.attackCooldown;
+    this._windupTimer = this._baseWindup ?? ENEMY_CONFIG.windupDuration;
+    this._attackCooldown = this._baseCooldown ?? ENEMY_CONFIG.attackCooldown;
 
     // Telegraph: flash orange ring at attack range & bright tint
     this._rangeGfx.setAlpha(0.85);
@@ -303,13 +323,13 @@ export class Enemy {
     this.scene.tweens.add({
       targets: this._rangeGfx,
       alpha: 0,
-      duration: ENEMY_CONFIG.windupDuration,
+      duration: this._windupTimer,
     });
   }
 
   _executeAttack(player, dist) {
     this.sprite.clearTint();
-    this._recoveryTimer = 400; // 400ms recovery window after attacking
+    this._recoveryTimer = this._baseRecovery ?? 400;
 
     // Re-measure distance after windup
     const dx2 = player.x - this.sprite.x;
@@ -317,8 +337,9 @@ export class Enemy {
     const dist2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
 
     if (dist2 <= ENEMY_CONFIG.attackRange * 1.25) {
-      // Deal damage
-      player.takeDamage(ENEMY_CONFIG.attackDamage);
+      // Deal scaled damage
+      const dmg = this._baseDamage ?? ENEMY_CONFIG.attackDamage;
+      player.takeDamage(dmg);
 
       // Apply knockback to player
       if (player.sprite?.body) {
@@ -401,7 +422,8 @@ export class Enemy {
   applyStrategy(strategyObj) {
     this.strategy = strategyObj;
     if (strategyObj.speedMultiplier) {
-      this.speed = ENEMY_CONFIG.speed * strategyObj.speedMultiplier;
+      // Multiply on top of the round difficulty base speed
+      this.speed = ENEMY_CONFIG.speed * (this._diffScale?.speed || 1) * strategyObj.speedMultiplier;
     }
     // Visual cue for current strategy
     const tintMap = {

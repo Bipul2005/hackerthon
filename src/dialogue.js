@@ -41,7 +41,7 @@ export class DialogueManager {
     // Dash usage comment – only when dash frequency becomes noticeable
     const dashCount = tracker.dashCount || 0;
     if (dashCount > this.lastDashCount) {
-      const roundDurationSec = tracker.round?.duration || 1;
+      const roundDurationSec = tracker.roundDuration || tracker.round?.duration || 1;
       const minutes = roundDurationSec / 60;
       const dpm = dashCount / Math.max(minutes, 0.01);
       if (dpm > 10 && this.lastDashCount === 0) {
