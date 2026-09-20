@@ -81,8 +81,11 @@ export class Player {
     this._dashVX = 0;
     this._dashVY = 0;
 
-    // Facing direction — determines attack direction
+    // Facing direction & Mouse aiming
     this.facing = DIRECTIONS.right;
+    this.aimAngle = 0;
+    this._moveVX = 0;
+    this._moveVY = 0;
 
     // Previous position for RUSH/RETREAT detection
     this._prevX = x;
@@ -96,31 +99,62 @@ export class Player {
     // Attack input flag
     this._attackPressed = false;
 
-    // ── Build sprite texture ──────────────────────────────────────
+    // ── Build futuristic humanoid sprite ───────────────────────
     const gfx = scene.make.graphics({ x: 0, y: 0, add: false });
-    const s = PLAYER_CONFIG.size;
+    const s = PLAYER_CONFIG.size; // base size (10)
 
-    // Body
-    gfx.fillStyle(PLAYER_CONFIG.color, 1);
-    gfx.fillRect(0, 0, s * 2, s * 2);
+    // Shadow (ellipse) – will be a separate sprite later
+    // Draw player body (torso)
+    gfx.fillStyle(0x001122, 1); // dark armor base
+    gfx.fillRoundedRect(s - 4, s, 12, 20, 4);
 
-    // Direction indicator (arrow pointing right by default)
+    // Head (circle)
+    gfx.fillStyle(0x0044bb, 1); // cyan helmet
+    gfx.fillCircle(s + 2, s - 4, 6);
+
+    // Arms (rectangles)
     gfx.fillStyle(0x003344, 1);
-    gfx.fillTriangle(s * 2 - 4, s, s + 4, s - 7, s + 4, s + 7);
+    gfx.fillRect(s - 8, s + 2, 4, 12); // left arm
+    gfx.fillRect(s + 12, s + 2, 4, 12); // right arm
 
-    // Inner highlight
-    gfx.fillStyle(0xffffff, 0.18);
-    gfx.fillRect(3, 3, s * 2 - 6, s - 2);
+    // Energy core (small circle on chest)
+    gfx.fillStyle(0x00e5ff, 1);
+    gfx.fillCircle(s + 2, s + 8, 3);
 
-    gfx.generateTexture('player_tex', s * 2, s * 2);
+    // Generate texture
+    gfx.generateTexture('player_futuristic', 32, 48);
     gfx.destroy();
 
-    this.sprite = scene.physics.add.sprite(x, y, 'player_tex');
+    // Main sprite
+    this.sprite = scene.physics.add.sprite(x, y, 'player_futuristic');
     this.sprite.setCollideWorldBounds(true);
     this.sprite.setDepth(10);
+    // Keep original hitbox size
+    this.sprite.setSize(PLAYER_CONFIG.size * 2, PLAYER_CONFIG.size * 2);
 
-    // ── Cooldown bars (rendered above player sprite) ──────────────
+    // Shadow sprite (simple ellipse)
+    const shadowGfx = scene.make.graphics({ x: 0, y: 0, add: false });
+    shadowGfx.fillStyle(0x000000, 0.25);
+    shadowGfx.fillEllipse(16, 24, 20, 8);
+    shadowGfx.generateTexture('player_shadow', 32, 48);
+    shadowGfx.destroy();
+    this.shadow = scene.add.image(x, y + 4, 'player_shadow');
+    this.shadow.setDepth(9);
+
+    // Idle pulse animation (breathing)
+    this.scene.tweens.add({
+      targets: this.sprite,
+      scale: { from: 1, to: 1.02 },
+      yoyo: true,
+      repeat: -1,
+      duration: 1500,
+      ease: 'Sine.InOut',
+    });
+
+    // ── Cooldown bars & Aim graphics (rendered above player sprite) ──────────────
     this._cdGfx = scene.add.graphics().setDepth(20);
+    this._aimGfx = scene.add.graphics().setDepth(15);
+    this._crosshairGfx = scene.add.graphics().setDepth(16);
 
     this._flashTimer = null;
   }
@@ -144,10 +178,73 @@ export class Player {
     if (!this.alive) return;
 
     this._tickCooldowns(delta);
+    this._handleAiming();
     this._handleMovement(keys, delta);
     this._handleDash(delta);
     this._handleAttack(enemy);
     this._drawCooldownBars();
+  }
+
+  // ─── Mouse Aiming ────────────────────────────────────────────────────────────
+
+  _handleAiming() {
+    const pointer = this.scene.input.activePointer;
+    const px = this.sprite.x;
+    const py = this.sprite.y;
+    const mx = pointer.worldX;
+    const my = pointer.worldY;
+
+    // Angle from player to pointer
+    this.aimAngle = Math.atan2(my - py, mx - px);
+
+    // Rotate player sprite toward mouse cursor
+    this.sprite.setRotation(this.aimAngle + Math.PI / 2);
+
+    // Map aim angle to cardinal direction quadrant for tracker & facing compatibility
+    const deg = (this.aimAngle * 180) / Math.PI;
+    if (deg >= -45 && deg < 45) {
+      this.facing = DIRECTIONS.right;
+    } else if (deg >= 45 && deg < 135) {
+      this.facing = DIRECTIONS.down;
+    } else if (deg >= -135 && deg < -45) {
+      this.facing = DIRECTIONS.up;
+    } else {
+      this.facing = DIRECTIONS.left;
+    }
+
+    this._drawAimIndicator(px, py, mx, my);
+  }
+
+  _drawAimIndicator(px, py, mx, my) {
+    this._aimGfx.clear();
+    this._crosshairGfx.clear();
+
+    if (!this.alive) return;
+
+    // Aim Line extending toward mouse
+    const lineLen = 45;
+    const endX = px + Math.cos(this.aimAngle) * lineLen;
+    const endY = py + Math.sin(this.aimAngle) * lineLen;
+
+    this._aimGfx.lineStyle(1.5, 0x00e5ff, 0.45);
+    this._aimGfx.lineBetween(px, py, endX, endY);
+
+    // Aim Arc / Attack Range Cone
+    this._aimGfx.lineStyle(1, 0x00e5ff, 0.2);
+    this._aimGfx.beginPath();
+    this._aimGfx.arc(px, py, PLAYER_CONFIG.attackRange, this.aimAngle - 0.55, this.aimAngle + 0.55);
+    this._aimGfx.strokePath();
+
+    // Futuristic Crosshair at mouse pointer
+    const ch = 8;
+    this._crosshairGfx.lineStyle(1.5, 0x00e5ff, 0.85);
+    this._crosshairGfx.strokeCircle(mx, my, 7);
+    this._crosshairGfx.lineBetween(mx - ch, my, mx - 3, my);
+    this._crosshairGfx.lineBetween(mx + 3, my, mx + ch, my);
+    this._crosshairGfx.lineBetween(mx, my - ch, mx, my - 3);
+    this._crosshairGfx.lineBetween(mx, my + 3, mx, my + ch);
+    this._crosshairGfx.fillStyle(0x00e5ff, 0.9);
+    this._crosshairGfx.fillCircle(mx, my, 1.5);
   }
 
   // ─── Movement ────────────────────────────────────────────────────────────────
@@ -169,17 +266,12 @@ export class Player {
       vx /= len; vy /= len;
     }
 
+    this._moveVX = vx;
+    this._moveVY = vy;
+
     this.sprite.setVelocity(vx * this.speed, vy * this.speed);
 
     if (moving) {
-      // Update facing direction (last pressed cardinal wins)
-      if (Math.abs(vx) >= Math.abs(vy)) {
-        this.facing = vx > 0 ? DIRECTIONS.right : DIRECTIONS.left;
-      } else {
-        this.facing = vy > 0 ? DIRECTIONS.down : DIRECTIONS.up;
-      }
-      this._setRotationFromFacing();
-
       // RUSH / RETREAT detection (relative to enemy)
       if (this.tracker && this.scene.enemy) {
         const dx = this.scene.enemy.x - this.sprite.x;
@@ -188,14 +280,7 @@ export class Player {
         if (dot > 0) this.tracker.recordRush();
         else         this.tracker.recordRetreat();
       }
-    } else {
-      this.sprite.setVelocity(0, 0);
     }
-  }
-
-  _setRotationFromFacing() {
-    const rotMap = { right: 0, down: Math.PI / 2, left: Math.PI, up: -Math.PI / 2 };
-    this.sprite.setRotation(rotMap[this.facing] + Math.PI / 2);
   }
 
   // ─── Dash ─────────────────────────────────────────────────────────────────────
@@ -228,9 +313,13 @@ export class Player {
     this._dashTimer = PLAYER_CONFIG.dashDuration;
     this._dashCooldown = PLAYER_CONFIG.dashCooldown;
 
-    // Dash in facing direction
-    const dirVec = { right: [1,0], left: [-1,0], up: [0,-1], down: [0,1] };
-    const [dvx, dvy] = dirVec[this.facing];
+    // Dash in movement direction if WASD is pressed, otherwise in mouse aim direction
+    let dvx = Math.cos(this.aimAngle);
+    let dvy = Math.sin(this.aimAngle);
+    if (this._moveVX !== 0 || this._moveVY !== 0) {
+      dvx = this._moveVX;
+      dvy = this._moveVY;
+    }
     this.sprite.setVelocity(dvx * PLAYER_CONFIG.dashSpeed, dvy * PLAYER_CONFIG.dashSpeed);
 
     // Visual: bright tint during dash
@@ -255,19 +344,18 @@ export class Player {
     this._attackCooldown = PLAYER_CONFIG.attackCooldown;
     this._attackTimer = PLAYER_CONFIG.attackDuration;
 
-    const dir = this.facing;
     const { x, y } = this.sprite;
 
-    // Show slash effect
-    spawnAttackSlash(this.scene, x, y, dir);
+    // Show slash effect toward aimAngle
+    spawnAttackSlash(this.scene, x, y, this.aimAngle);
 
-    // Emit attack event
+    // Emit attack event to tracker using mapped cardinal direction
     if (this.tracker) {
-      this.tracker.recordAttack(dir);
+      this.tracker.recordAttack(this.facing);
     }
 
     // ── Hit detection ─────────────────────────────────────────────
-    const hit = this._checkAttackHit(enemy, dir);
+    const hit = this._checkAttackHit(enemy, this.aimAngle);
 
     if (hit) {
       enemy.takeDamage(PLAYER_CONFIG.attackDamage);
@@ -279,7 +367,7 @@ export class Player {
         this.tracker.recordDamageDealt(PLAYER_CONFIG.attackDamage);
       }
     } else {
-      spawnMissEffect(this.scene, x, y, dir);
+      spawnMissEffect(this.scene, x, y, this.facing);
       if (this.tracker) {
         this.tracker.recordMiss();
       }
@@ -292,12 +380,12 @@ export class Player {
   }
 
   /**
-   * Check if the enemy falls within the attack cone in the given direction.
+   * Check if the enemy falls within the attack cone of aimAngle.
    * @param {import('./enemy.js').Enemy} enemy
-   * @param {string} dir
+   * @param {number} aimAngle - angle in radians
    * @returns {boolean}
    */
-  _checkAttackHit(enemy, dir) {
+  _checkAttackHit(enemy, aimAngle) {
     if (!enemy || !enemy.alive) return false;
 
     const dx = enemy.x - this.sprite.x;
@@ -306,12 +394,12 @@ export class Player {
 
     if (dist > PLAYER_CONFIG.attackRange) return false;
 
-    // Directional cone check — enemy must be within ±70° of attack direction
-    const dirVec = { right: [1,0], left: [-1,0], up: [0,-1], down: [0,1] };
-    const [ax, ay] = dirVec[dir];
-    const dot = (dx / dist) * ax + (dy / dist) * ay;
+    // Angle to enemy
+    const enemyAngle = Math.atan2(dy, dx);
+    let diff = Math.abs(Phaser.Math.Angle.Normalize(enemyAngle - aimAngle));
+    if (diff > Math.PI) diff = Math.PI * 2 - diff;
 
-    return dot > 0.34; // cos(70°) ≈ 0.34
+    return diff <= 1.1; // ~63 degree angle cone
   }
 
   // ─── Damage & Death ──────────────────────────────────────────────────────────
@@ -351,6 +439,8 @@ export class Player {
     this.sprite.setVelocity(0, 0);
     this.sprite.setAlpha(0.5);
     this._cdGfx.clear();
+    this._aimGfx.clear();
+    this._crosshairGfx.clear();
     this.scene.cameras.main.shake(400, 0.025);
   }
 
@@ -396,6 +486,8 @@ export class Player {
   destroy() {
     if (this._flashTimer) this._flashTimer.remove();
     this._cdGfx.destroy();
+    this._aimGfx.destroy();
+    this._crosshairGfx.destroy();
     this.sprite.destroy();
   }
 }

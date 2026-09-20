@@ -17,6 +17,7 @@ export class BehaviorAnalyzer {
       directionConfidence: 0,
       playStyle: 'BALANCED',
       dashUsage: 'LOW',
+      stationaryBehavior: 'LOW',
       accuracy: 0,
       predictability: 0,
     };
@@ -68,14 +69,26 @@ export class BehaviorAnalyzer {
     const durationMins = (summary.roundDuration || 1) / 60;
     const dashesPerMin = summary.dashCount / durationMins;
     
-    if (dashesPerMin > 15) {
+    if (dashesPerMin > 10) {
       metrics.dashUsage = 'HIGH';
       observations.push('Player uses dash frequently.');
-    } else if (dashesPerMin > 5) {
+    } else if (dashesPerMin >= 2.5) {
       metrics.dashUsage = 'MEDIUM';
     } else {
       metrics.dashUsage = 'LOW';
       if (summary.roundDuration > 10) observations.push('Player rarely dashes.');
+    }
+
+    // --- 3.5 Stationary Behavior ---
+    const statStreak = summary.stationaryStreak || 0;
+    const statRatio = summary.roundDuration > 0 ? (summary.timeStationary / summary.roundDuration) : 0;
+    if (statStreak >= 2.5 || statRatio > 0.45) {
+      metrics.stationaryBehavior = 'HIGH';
+      observations.push('Player remains stationary frequently.');
+    } else if (statStreak >= 1.2 || statRatio > 0.25) {
+      metrics.stationaryBehavior = 'MEDIUM';
+    } else {
+      metrics.stationaryBehavior = 'LOW';
     }
 
     // --- 4. Play Style (Aggressive vs Defensive) ---
@@ -87,17 +100,17 @@ export class BehaviorAnalyzer {
     
     let aggressionScore = 0;
     
-    if (closeRatio > 0.6) aggressionScore += 1;
-    if (farRatio > 0.6) aggressionScore -= 1;
-    if (summary.rushCount > summary.retreatCount * 2) aggressionScore += 1;
-    if (summary.retreatCount > summary.rushCount * 2) aggressionScore -= 1;
+    if (closeRatio > 0.5) aggressionScore += 1;
+    if (farRatio > 0.5) aggressionScore -= 1;
+    if (summary.rushCount > summary.retreatCount * 1.5) aggressionScore += 1;
+    if (summary.retreatCount > summary.rushCount) aggressionScore -= 1;
     if (totalAttacks / durationMins > 30) aggressionScore += 1;
-    if (totalAttacks / durationMins < 10) aggressionScore -= 1;
+    if (totalAttacks / durationMins <= 10) aggressionScore -= 1;
 
-    if (aggressionScore >= 2) {
+    if (aggressionScore >= 1) {
       metrics.playStyle = 'AGGRESSIVE';
       observations.push('Player exhibits highly AGGRESSIVE behavior (frequently rushes toward the enemy).');
-    } else if (aggressionScore <= -2) {
+    } else if (aggressionScore <= -1) {
       metrics.playStyle = 'DEFENSIVE';
       observations.push('Player exhibits highly DEFENSIVE behavior (retreats and stays far away).');
     } else {
@@ -110,14 +123,18 @@ export class BehaviorAnalyzer {
     // If they have a preferred direction with >70% confidence, or exclusively rush/retreat, they are predictable.
     
     let predScore = 0;
-    if (metrics.directionConfidence > 0.7) predScore += 0.4;
-    else if (metrics.directionConfidence > 0.5) predScore += 0.2;
-    
-    if (metrics.playStyle !== 'BALANCED') predScore += 0.3;
-    
-    if (summary.dashCount === 0 && summary.roundDuration > 20) predScore += 0.2; // Not using all tools
-    
-    metrics.predictability = Math.min(1.0, predScore);
+    if (metrics.playStyle !== 'BALANCED') {
+      predScore += 0.3;
+      if (metrics.directionConfidence >= 0.75) predScore += 0.4;
+      else if (metrics.directionConfidence >= 0.5) predScore += 0.2;
+    } else {
+      if (metrics.directionConfidence >= 0.25) predScore += 0.2;
+    }
+
+    if (summary.rushCount > 10 && summary.rushCount > summary.retreatCount * 5) predScore += 0.4;
+    if (summary.dashCount === 0 && summary.roundDuration > 20) predScore += 0.2;
+
+    metrics.predictability = Math.max(0, Math.min(1.0, parseFloat(predScore.toFixed(1))));
 
     if (metrics.predictability > 0.7) {
       observations.push('Player behavior is highly predictable.');

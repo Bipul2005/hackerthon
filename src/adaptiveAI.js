@@ -86,6 +86,16 @@ export class AdaptiveAI {
       });
     }
 
+    // 5. Stationary player detection
+    if (metrics.stationaryBehavior === 'HIGH' || (s.stationaryStreak && s.stationaryStreak >= 2.5)) {
+      strategies.push({
+        name: 'ANTI_STATIONARY',
+        confidence: 0.85,
+        reason: 'Player stands stationary frequently.',
+        speedMultiplier: 1.1,
+      });
+    }
+
     // Pick the strategy with highest confidence
     if (strategies.length === 0) {
       this.currentStrategy = { name: 'NONE', confidence: 0, reason: 'No dominant behaviour detected.' };

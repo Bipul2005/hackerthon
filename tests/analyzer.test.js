@@ -108,7 +108,7 @@ runTest('Defensive', {
 }, {
   metrics: {
     preferredDirection: 'BALANCED',
-    directionConfidence: 0.2,
+    directionConfidence: 0.4,
     playStyle: 'DEFENSIVE',
     dashUsage: 'LOW',
     accuracy: 0.2,
@@ -179,6 +179,28 @@ runTest('Random', {
     dashUsage: 'MEDIUM',
     accuracy: 0.5,
     predictability: 0.2,
+  },
+});
+
+// 8. Stationary player
+runTest('Stationary', {
+  totalAttacks: 5,
+  leftAttacks: 1,
+  rightAttacks: 2,
+  upAttacks: 1,
+  downAttacks: 1,
+  hits: 2,
+  dashCount: 0,
+  roundDuration: 60,
+  timeStationary: 40,
+  stationaryStreak: 3.5,
+  timeClose: 30,
+  timeFar: 10,
+  rushCount: 0,
+  retreatCount: 0,
+}, {
+  metrics: {
+    stationaryBehavior: 'HIGH',
   },
 });
 

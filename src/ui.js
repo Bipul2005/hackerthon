@@ -244,6 +244,7 @@ export class HUD {
       text += `STYLE: ${analysis.metrics.playStyle}\n`;
       text += `PREF DIR: ${analysis.metrics.preferredDirection}\n`;
       text += `DASH USE: ${analysis.metrics.dashUsage}\n`;
+      text += `STATIONARY: ${analysis.metrics.stationaryBehavior || 'LOW'}\n`;
       text += `PREDICTABILITY: ${(analysis.metrics.predictability * 100).toFixed(0)}%\n`;
       
       text += `\nOBSERVATIONS:\n`;

@@ -28,7 +28,15 @@ const DIR_OFFSETS = {
  * @param {string} dir - 'left' | 'right' | 'up' | 'down'
  */
 export function spawnAttackSlash(scene, x, y, dir) {
-  const { ox, oy, angle } = DIR_OFFSETS[dir] || DIR_OFFSETS.right;
+  let ox = 40, oy = 0, angle = 0;
+  if (typeof dir === 'number') {
+    angle = dir;
+    ox = Math.cos(angle) * 40;
+    oy = Math.sin(angle) * 40;
+  } else {
+    const info = DIR_OFFSETS[dir] || DIR_OFFSETS.right;
+    ox = info.ox; oy = info.oy; angle = info.angle;
+  }
   const cx = x + ox;
   const cy = y + oy;
 

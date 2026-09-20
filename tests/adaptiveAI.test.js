@@ -100,4 +100,21 @@ runTest('Defensive', {
   retreatCount: 10,
 }, 'ANTI_DEFENSIVE');
 
+// 6. Player stands stationary
+runTest('Stationary', {
+  totalAttacks: 5,
+  leftAttacks: 1,
+  rightAttacks: 1,
+  upAttacks: 1,
+  downAttacks: 2,
+  dashCount: 0,
+  roundDuration: 60,
+  timeStationary: 40,
+  stationaryStreak: 3.5,
+  timeClose: 30,
+  timeFar: 10,
+  rushCount: 1,
+  retreatCount: 1,
+}, 'ANTI_STATIONARY');
+
 console.log('All AdaptiveAI tests completed');

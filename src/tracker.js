@@ -99,8 +99,10 @@ export class BehaviorTracker {
     const isMoving = Math.abs(player.sprite.body.velocity.x) > 0 || Math.abs(player.sprite.body.velocity.y) > 0;
     if (isMoving) {
       this.movement.timeMoving += dtSec;
+      this.movement.stationaryStreak = 0;
     } else {
       this.movement.timeStationary += dtSec;
+      this.movement.stationaryStreak = (this.movement.stationaryStreak || 0) + dtSec;
     }
 
     // Distance traveled
@@ -192,6 +194,7 @@ export class BehaviorTracker {
       // Movement & Dash
       timeMoving: this.movement.timeMoving,
       timeStationary: this.movement.timeStationary,
+      stationaryStreak: this.movement.stationaryStreak || 0,
       distanceTraveled: this.movement.distanceTraveled,
       dashCount: this.defense.dashCount,
 
