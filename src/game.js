@@ -245,9 +245,9 @@ export class GameScene extends Phaser.Scene {
       this.time.delayedCall(2100, () => this.hud.showDialogue(openingLine, 3500));
     }
 
-    // R to restart at any end state
+    // R to restart only after final result (loss or final win)
     this.input.keyboard.on('keydown-R', () => {
-      if (this.gameOver || this.gameWon) {
+      if (this.gameOver || (this.gameWon && this.round >= MAX_ROUNDS)) {
         GameScene.resetMemory();
         this.scene.start('StartScene');
       }
