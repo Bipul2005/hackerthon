@@ -1,70 +1,52 @@
+// src/memory.js
 /**
- * memory.js — AI Memory (PLANNED — Stage 2+)
- *
- * STATUS: Scaffold / Placeholder
- * This module is not active in Stage 1.
- *
- * PURPOSE:
- *   Persistent (within-session) storage of player behavior profiles
- *   across rounds. Allows the enemy to "remember" what worked and what
- *   didn't across multiple encounters.
- *
- * PLANNED STORAGE FORMAT:
- *   {
- *     rounds: [
- *       {
- *         round: 1,
- *         profile: { ... BehaviorAnalyzer profile ... },
- *         strategyUsed: 'aggressive',
- *         outcome: 'win' | 'lose',
- *         damageTaken: number,
- *         damageDealt: number,
- *       }
- *     ],
- *     aggregateProfile: { ... merged across rounds ... }
- *   }
- *
- * PIPELINE POSITION:
- *   ADAPTIVE AI ↔ [AI MEMORY] (bidirectional: read past, write new)
+ * Memory module – stores per‑round analysis results for the Adaptive AI.
+ * Allows the AI to recall what it learned previously while still being able
+ * to adapt when the player's behavior changes.
  */
-
-export class AIMemory {
+export class Memory {
   constructor() {
-    this.rounds = [];
-    this.aggregateProfile = null;
+    this._records = [];
   }
 
   /**
-   * Save data from a completed round.
-   * @param {object} roundData
-   *
-   * TODO (Stage 2): Implement real memory consolidation
+   * Record memory of a round.
+   * @param {object} param
+   * @param {number} param.round - round number
+   * @param {object} param.behavior - behavior summary (e.g., metrics from Analyzer)
+   * @param {string} param.strategy - selected strategy name
+   * @param {number} param.confidence - confidence (0‑1)
+   * @param {string} param.reason - human readable reason
+   * @param {Array<string>} [param.events] - notable events for the round
    */
-  saveRound(roundData) {
-    this.rounds.push(roundData);
-    this._consolidate();
+  addRecord({ round, behavior, strategy, confidence, reason, events = [] }) {
+    this._records.push({ round, behavior, strategy, confidence, reason, events });
   }
 
-  /**
-   * Returns the consolidated profile across all remembered rounds.
-   * @returns {object|null}
-   *
-   * TODO (Stage 2): Return real aggregate
-   */
-  getProfile() {
-    return this.aggregateProfile;
+  /** Return all stored records */
+  getAll() {
+    return this._records.slice(); // shallow copy
   }
 
-  _consolidate() {
-    // TODO (Stage 2): Merge round profiles into aggregate
-    this.aggregateProfile = null;
+  /** Return the most recent record */
+  getLatest() {
+    return this._records[this._records.length - 1] || null;
   }
 
-  /**
-   * Wipe all memory (new game session).
-   */
+  /** Clear memory (for testing or new session) */
   reset() {
-    this.rounds = [];
-    this.aggregateProfile = null;
+    this._records = [];
+  }
+
+  /**
+   * Helper for UI display – returns an array of formatted strings.
+   * Example: "Round 1 → Preferred LEFT attacks → Aggressive → Strategy: PROTECT_LEFT"
+   */
+  getDisplayData() {
+    return this._records.map(r => {
+      const pref = r.behavior?.preferredDirection || 'UNKNOWN';
+      const style = r.behavior?.playStyle || 'UNKNOWN';
+      return `Round ${r.round} → Preferred ${pref} attacks → ${style} → Strategy: ${r.strategy}`;
+    });
   }
 }
