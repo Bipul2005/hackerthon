@@ -1,0 +1,57 @@
+/* =============================================
+   ADAPT — Global Styles
+   ============================================= */
+
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@300;400;600&display=swap');
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --color-bg: #0a0a0f;
+  --color-primary: #00e5ff;
+  --color-accent: #ff3d71;
+  --color-warning: #ffaa00;
+  --color-text: #e0e0f0;
+  --color-muted: #5a5a7a;
+  --font-game: 'Orbitron', monospace;
+  --font-ui: 'Inter', sans-serif;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  background-color: var(--color-bg);
+  overflow: hidden;
+  font-family: var(--font-ui);
+  color: var(--color-text);
+}
+
+#game-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100vw;
+  height: 100vh;
+}
+
+/* Phaser canvas centering */
+#game-container canvas {
+  display: block;
+  image-rendering: pixelated;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-primary);
+  border-radius: 3px;
+}
