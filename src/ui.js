@@ -64,7 +64,7 @@ export class HUD {
     this._enemyBarFill = scene.add.graphics().setScrollFactor(0).setDepth(101);
     this._enemyLabel = scene.add.text(W - PADDING - BAR_W, H - PADDING - BAR_H - 18, 'ENEMY', LABEL_STYLE)
       .setScrollFactor(0).setDepth(102);
-    this._enemyHPText = scene.add.text(W - PADDING - BAR_W - 36, H - PADDING - BAR_H + 1, '150', HUD_STYLE)
+    this._enemyHPText = scene.add.text(W - PADDING - BAR_W - 36, H - PADDING - BAR_H + 1, '100', HUD_STYLE)
       .setScrollFactor(0).setDepth(102);
 
     // ---- Round counter (top-center) ----
@@ -79,10 +79,19 @@ export class HUD {
       .setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(200).setAlpha(0);
 
     // ---- Small hint bottom-center ----
-    this._hintText = scene.add.text(W / 2, H - PADDING, 'WASD to move', {
+    this._hintText = scene.add.text(W / 2, H - PADDING, 'WASD · Move    SPACE · Attack    SHIFT · Dash', {
       ...LABEL_STYLE,
       fontSize: '10px',
     }).setOrigin(0.5, 1).setScrollFactor(0).setDepth(102);
+
+    // ---- Combat event flash (top-left corner) ----
+    this._combatText = scene.add.text(PADDING, PADDING + 24, '', {
+      fontFamily: 'Orbitron, monospace',
+      fontSize: '11px',
+      color: '#00e5ff',
+      stroke: '#000000',
+      strokeThickness: 3,
+    }).setScrollFactor(0).setDepth(102).setAlpha(0);
 
     this._barY_player = H - PADDING - BAR_H;
     this._barX_enemy = W - PADDING - BAR_W;
@@ -160,11 +169,26 @@ export class HUD {
     this._statusText.setAlpha(0);
   }
 
+  /**
+   * Flash a brief combat event label (HIT / MISS / DASH etc.)
+   * @param {string} msg
+   * @param {string} [color='#00e5ff']
+   */
+  flashCombatEvent(msg, color = '#00e5ff') {
+    this._combatText.setText(msg).setColor(color).setAlpha(1);
+    this.scene.tweens.add({
+      targets: this._combatText,
+      alpha: 0,
+      duration: 600,
+      ease: 'Quad.Out',
+    });
+  }
+
   destroy() {
     [
       this._playerBarBg, this._playerBarFill, this._playerLabel, this._playerHPText,
       this._enemyBarBg, this._enemyBarFill, this._enemyLabel, this._enemyHPText,
-      this._roundText, this._statusText, this._hintText,
+      this._roundText, this._statusText, this._hintText, this._combatText,
     ].forEach(o => o && o.destroy());
   }
 }

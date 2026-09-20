@@ -1,9 +1,16 @@
 /**
- * game.js — Main Game Scenes
+ * game.js — Main Game Scenes (Stage 2: Combat System)
  *
  * Contains two Phaser scenes:
  *   StartScene — Title screen with "Start Game" button
- *   GameScene  — Main combat arena scene
+ *   GameScene  — Main combat arena with full combat loop
+ *
+ * Stage 2 additions:
+ *   - SPACE / SHIFT key bindings for attack and dash
+ *   - Player reference injected into scene for enemy knockback
+ *   - Tracker passed to player for behavior event recording
+ *   - HUD combat event flashes wired to player/enemy events
+ *   - Enemy HP updated to 100
  *
  * The Game Loop:
  *   StartScene → GameScene → (Win/Lose) → StartScene
@@ -34,7 +41,7 @@ export class StartScene extends Phaser.Scene {
     for (let x = 0; x < W; x += 40) bg.lineBetween(x, 0, x, H);
     for (let y = 0; y < H; y += 40) bg.lineBetween(0, y, W, y);
 
-    // ---- Animated scanline overlay ----
+    // ---- Scanline overlay ----
     const scanline = this.add.graphics();
     scanline.fillStyle(0x00e5ff, 0.03);
     for (let y = 0; y < H; y += 4) scanline.fillRect(0, y, W, 2);
@@ -49,7 +56,7 @@ export class StartScene extends Phaser.Scene {
     }).setOrigin(0.5).setAlpha(0);
 
     // Subtitle
-    const sub = this.add.text(W / 2, H * 0.37, 'The enemy doesn\'t just get stronger.\nIt learns how you play.', {
+    const sub = this.add.text(W / 2, H * 0.37, "The enemy doesn't just get stronger.\nIt learns how you play.", {
       fontFamily: 'Orbitron, monospace',
       fontSize: '16px',
       color: '#7799bb',
@@ -72,11 +79,12 @@ export class StartScene extends Phaser.Scene {
       }).setOrigin(0.5).setAlpha(0)
     );
 
-    // ---- Controls info ----
-    const controls = this.add.text(W / 2, H * 0.66, 'WASD — Move', {
+    // ---- Controls ----
+    const controls = this.add.text(W / 2, H * 0.655, 'WASD · Move    SPACE · Attack    SHIFT · Dash', {
       fontFamily: 'Orbitron, monospace',
       fontSize: '12px',
       color: '#445566',
+      align: 'center',
     }).setOrigin(0.5).setAlpha(0);
 
     // ---- Start Button ----
@@ -120,13 +128,13 @@ export class StartScene extends Phaser.Scene {
     });
 
     // ---- Version tag ----
-    this.add.text(W - 10, H - 10, 'v0.1.0 — Stage 1', {
+    this.add.text(W - 10, H - 10, 'v0.2.0 — Stage 2', {
       fontFamily: 'Inter, sans-serif',
       fontSize: '10px',
       color: '#334455',
     }).setOrigin(1, 1);
 
-    // ---- Entrance animations ----
+    // ---- Animations ----
     this.tweens.add({ targets: logo, alpha: 1, y: H * 0.22 - 10, duration: 800, ease: 'Cubic.Out', delay: 100 });
     this.tweens.add({ targets: sub, alpha: 1, duration: 700, ease: 'Cubic.Out', delay: 600 });
     featureTexts.forEach((t, i) =>
@@ -150,7 +158,6 @@ export class StartScene extends Phaser.Scene {
 // ================================================================
 
 const ARENA_PADDING = 60;
-const ARENA_WALL_COLOR = 0x1a1a3e;
 const ARENA_FLOOR_COLOR = 0x0d0d1a;
 
 export class GameScene extends Phaser.Scene {
@@ -166,41 +173,57 @@ export class GameScene extends Phaser.Scene {
     const W = this.scale.width;
     const H = this.scale.height;
 
-    // ---- Build the arena ----
+    // ---- Arena ----
     this._buildArena(W, H);
+
+    // ---- Behavior Tracker ----
+    // Instantiated first so it can be passed to player
+    this.tracker = new BehaviorTracker();
 
     // ---- Spawn player (center-left) ----
     this.player = new Player(this, W * 0.28, H / 2);
+    this.player.setTracker(this.tracker);
 
     // ---- Spawn enemy (center-right) ----
     this.enemy = new Enemy(this, W * 0.72, H / 2);
 
-    // ---- Behavior Tracker (observes player — future use) ----
-    this.tracker = new BehaviorTracker(this.player);
-
     // ---- HUD ----
     this.hud = new HUD(this, this.round);
 
-    // ---- WASD key bindings ----
-    this.cursors = {
-      W: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W),
-      A: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A),
-      S: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S),
-      D: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D),
+    // ---- Key bindings ----
+    this.keys = {
+      W:     this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W),
+      A:     this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A),
+      S:     this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S),
+      D:     this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D),
+      SPACE: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE),
+      SHIFT: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT),
     };
+
+    this.input.keyboard.on('keydown-SPACE', () => {
+      if (this.player && this.player.alive) this.player._attackPressed = true;
+    });
+    this.input.keyboard.on('keydown-SHIFT', () => {
+      if (this.player && this.player.alive) this.player._dashPressed = true;
+    });
 
     // ---- Game state ----
     this.gameOver = false;
-    this.gameWon = false;
+    this.gameWon  = false;
 
-    // ---- Round start banner ----
+    // Round start banner
     this.hud.showStatus(`ROUND ${this.round}`, '#ffaa00', 1500);
 
-    // ---- Restart key (R) ----
+    // R to restart after end
     this.input.keyboard.on('keydown-R', () => {
       if (this.gameOver || this.gameWon) {
         this.scene.start('StartScene');
       }
+    });
+
+    // Debug: print tracker summary on ESC
+    this.input.keyboard.on('keydown-ESC', () => {
+      console.log('[ADAPT Tracker Summary]', this.tracker.getSummary());
     });
   }
 
@@ -240,7 +263,7 @@ export class GameScene extends Phaser.Scene {
     gfx.lineStyle(1, 0x00e5ff, 0.08);
     gfx.lineBetween(W / 2, ARENA_PADDING, W / 2, H - ARENA_PADDING);
 
-    // Set world bounds
+    // Set world bounds to arena interior
     this.physics.world.setBounds(
       ARENA_PADDING, ARENA_PADDING,
       W - ARENA_PADDING * 2, H - ARENA_PADDING * 2
@@ -250,9 +273,11 @@ export class GameScene extends Phaser.Scene {
   update(time, delta) {
     if (this.gameOver || this.gameWon) return;
 
-    // Update game entities
-    this.player.update(this.cursors);
+    // Update entities — pass keys, enemy reference, and delta
+    this.player.update(this.keys, this.enemy, delta);
     this.enemy.update(this.player, delta);
+
+    // Record positional snapshot
     this.tracker.record(this.player, delta);
 
     // Update HUD
@@ -273,15 +298,17 @@ export class GameScene extends Phaser.Scene {
 
   _onWin() {
     this.hud.showStatus('ROUND CLEAR', '#00e5ff');
+    // Print tracker summary on win
+    console.log('[ADAPT] Round complete. Tracker summary:', this.tracker.getSummary());
     this.time.delayedCall(2500, () => {
-      // Future: advance to next round / trigger AI memory consolidation
-      this.hud.showStatus(`PRESS R TO RETURN\nTO TITLE`, '#7799bb');
+      this.hud.showStatus('PRESS R TO RETURN\nTO TITLE', '#7799bb');
     });
   }
 
   _onLose() {
     this.cameras.main.shake(600, 0.025);
     this.hud.showStatus('GAME OVER', '#ff3d71');
+    console.log('[ADAPT] Game over. Tracker summary:', this.tracker.getSummary());
     this.time.delayedCall(2000, () => {
       this.hud.showStatus('PRESS R TO RETURN\nTO TITLE', '#7799bb');
     });
