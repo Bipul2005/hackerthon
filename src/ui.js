@@ -93,6 +93,15 @@ export class HUD {
       strokeThickness: 3,
     }).setScrollFactor(0).setDepth(102).setAlpha(0);
 
+    // ---- Debug Panel (Top Right) ----
+    this._debugBg = scene.add.graphics().setScrollFactor(0).setDepth(300).setAlpha(0.85);
+    this._debugText = scene.add.text(W - 250, 40, 'PLAYER BEHAVIOR\n...', {
+      fontFamily: 'Orbitron, monospace',
+      fontSize: '10px',
+      color: '#00ffaa',
+      lineSpacing: 4,
+    }).setScrollFactor(0).setDepth(301);
+
     this._barY_player = H - PADDING - BAR_H;
     this._barX_enemy = W - PADDING - BAR_W;
 
@@ -184,11 +193,53 @@ export class HUD {
     });
   }
 
+  /**
+   * Update the debug panel with Tracker summary and Analyzer results.
+   * @param {object} summary 
+   * @param {object} analysis 
+   */
+  updateDebugPanel(summary, analysis) {
+    if (!summary) return;
+
+    let text = `--- PLAYER BEHAVIOR ---\n\n`;
+    text += `ATTACKS: ${summary.totalAttacks} (Hits: ${summary.hits}, Misses: ${summary.misses})\n`;
+    text += `  [L:${summary.leftAttacks} R:${summary.rightAttacks} U:${summary.upAttacks} D:${summary.downAttacks}]\n`;
+    text += `DASHES: ${summary.dashCount}\n`;
+    text += `RUSHES: ${summary.rushCount} | RETREATS: ${summary.retreatCount}\n`;
+    text += `DIST: Math.floor(${summary.distanceTraveled})px\n`;
+    
+    if (analysis && analysis.metrics) {
+      text += `\n--- ANALYZER ---\n\n`;
+      text += `STYLE: ${analysis.metrics.playStyle}\n`;
+      text += `PREF DIR: ${analysis.metrics.preferredDirection}\n`;
+      text += `DASH USE: ${analysis.metrics.dashUsage}\n`;
+      text += `PREDICTABILITY: ${(analysis.metrics.predictability * 100).toFixed(0)}%\n`;
+      
+      text += `\nOBSERVATIONS:\n`;
+      analysis.observations.forEach(obs => {
+        text += `- ${obs}\n`;
+      });
+    }
+
+    this._debugText.setText(text);
+
+    // Update background size
+    this._debugBg.clear();
+    this._debugBg.fillStyle(0x0a0a1a, 1);
+    this._debugBg.lineStyle(1, 0x00ffaa, 0.4);
+    
+    const bounds = this._debugText.getBounds();
+    const bgPadding = 8;
+    this._debugBg.fillRect(bounds.x - bgPadding, bounds.y - bgPadding, bounds.width + bgPadding * 2, bounds.height + bgPadding * 2);
+    this._debugBg.strokeRect(bounds.x - bgPadding, bounds.y - bgPadding, bounds.width + bgPadding * 2, bounds.height + bgPadding * 2);
+  }
+
   destroy() {
     [
       this._playerBarBg, this._playerBarFill, this._playerLabel, this._playerHPText,
       this._enemyBarBg, this._enemyBarFill, this._enemyLabel, this._enemyHPText,
       this._roundText, this._statusText, this._hintText, this._combatText,
+      this._debugText, this._debugBg
     ].forEach(o => o && o.destroy());
   }
 }

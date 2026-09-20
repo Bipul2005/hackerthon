@@ -180,16 +180,13 @@ export class Player {
       }
       this._setRotationFromFacing();
 
-      // Emit PLAYER_MOVE
-      this._emit('PLAYER_MOVE', { vx, vy });
-
       // RUSH / RETREAT detection (relative to enemy)
       if (this.tracker && this.scene.enemy) {
         const dx = this.scene.enemy.x - this.sprite.x;
         const dy = this.scene.enemy.y - this.sprite.y;
         const dot = vx * dx + vy * dy;
-        if (dot > 0) this._emit('PLAYER_RUSH', {});
-        else         this._emit('PLAYER_RETREAT', {});
+        if (dot > 0) this.tracker.recordRush();
+        else         this.tracker.recordRetreat();
       }
     } else {
       this.sprite.setVelocity(0, 0);
@@ -239,7 +236,9 @@ export class Player {
     // Visual: bright tint during dash
     this.sprite.setTint(0x88ffff);
 
-    this._emit('PLAYER_DASH', { dir: this.facing });
+    if (this.tracker) {
+      this.tracker.recordDash();
+    }
   }
 
   // ─── Attack ──────────────────────────────────────────────────────────────────
@@ -262,9 +261,10 @@ export class Player {
     // Show slash effect
     spawnAttackSlash(this.scene, x, y, dir);
 
-    // Emit generic + directional attack events
-    this._emit('PLAYER_ATTACK', { dir });
-    this._emit(`PLAYER_ATTACK_${dir.toUpperCase()}`, {});
+    // Emit attack event
+    if (this.tracker) {
+      this.tracker.recordAttack(dir);
+    }
 
     // ── Hit detection ─────────────────────────────────────────────
     const hit = this._checkAttackHit(enemy, dir);
@@ -273,10 +273,16 @@ export class Player {
       enemy.takeDamage(PLAYER_CONFIG.attackDamage);
       spawnHitSpark(this.scene, enemy.x, enemy.y, 0x00e5ff);
       spawnDamageNumber(this.scene, enemy.x, enemy.y - 10, PLAYER_CONFIG.attackDamage, '#00e5ff');
-      this._emit('PLAYER_HIT', { dir, damage: PLAYER_CONFIG.attackDamage });
+      
+      if (this.tracker) {
+        this.tracker.recordHit();
+        this.tracker.recordDamageDealt(PLAYER_CONFIG.attackDamage);
+      }
     } else {
       spawnMissEffect(this.scene, x, y, dir);
-      this._emit('PLAYER_MISS', { dir });
+      if (this.tracker) {
+        this.tracker.recordMiss();
+      }
     }
 
     // End attack state after duration
@@ -328,7 +334,9 @@ export class Player {
       this.isInvincible = false;
     });
 
-    this._emit('PLAYER_HIT', { amount });
+    if (this.tracker) {
+      this.tracker.recordDamageReceived(amount);
+    }
 
     if (this.health <= 0) this.die();
   }
@@ -380,18 +388,6 @@ export class Player {
   }
 
   // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-  /** Emit an event to the BehaviorTracker */
-  _emit(eventType, data = {}) {
-    if (this.tracker) {
-      this.tracker.recordEvent(eventType, {
-        x: this.sprite.x,
-        y: this.sprite.y,
-        hp: this.health,
-        ...data,
-      });
-    }
-  }
 
   get healthFraction() { return this.health / this.maxHealth; }
   get x() { return this.sprite.x; }

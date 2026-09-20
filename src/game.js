@@ -21,6 +21,7 @@ import { Player } from './player.js';
 import { Enemy } from './enemy.js';
 import { HUD } from './ui.js';
 import { BehaviorTracker } from './tracker.js';
+import { BehaviorAnalyzer } from './analyzer.js';
 
 // ================================================================
 //  START SCENE
@@ -176,9 +177,13 @@ export class GameScene extends Phaser.Scene {
     // ---- Arena ----
     this._buildArena(W, H);
 
-    // ---- Behavior Tracker ----
+    // ---- Behavior Tracker & Analyzer ----
     // Instantiated first so it can be passed to player
     this.tracker = new BehaviorTracker();
+    this.analyzer = new BehaviorAnalyzer();
+
+    // Start round tracking
+    this.tracker.recordRoundStart();
 
     // ---- Spawn player (center-left) ----
     this.player = new Player(this, W * 0.28, H / 2);
@@ -224,7 +229,10 @@ export class GameScene extends Phaser.Scene {
     // Debug: print tracker summary on ESC
     this.input.keyboard.on('keydown-ESC', () => {
       console.log('[ADAPT Tracker Summary]', this.tracker.getSummary());
+      console.log('[ADAPT Analyzer Result]', this.analyzer.analyze(this.tracker.getSummary()));
     });
+
+    this._analyzeTimer = 0;
   }
 
   _buildArena(W, H) {
@@ -277,8 +285,17 @@ export class GameScene extends Phaser.Scene {
     this.player.update(this.keys, this.enemy, delta);
     this.enemy.update(this.player, delta);
 
-    // Record positional snapshot
-    this.tracker.record(this.player, delta);
+    // Record continuous tracker stats
+    this.tracker.update(delta, this.player, this.enemy);
+
+    // Update Analyzer & UI Debug Panel (twice a second)
+    this._analyzeTimer += delta;
+    if (this._analyzeTimer >= 500) {
+      this._analyzeTimer = 0;
+      const summary = this.tracker.getSummary();
+      const analysis = this.analyzer.analyze(summary);
+      this.hud.updateDebugPanel(summary, analysis);
+    }
 
     // Update HUD
     this.hud.update(
@@ -297,18 +314,22 @@ export class GameScene extends Phaser.Scene {
   }
 
   _onWin() {
+    this.tracker.recordRoundEnd();
     this.hud.showStatus('ROUND CLEAR', '#00e5ff');
     // Print tracker summary on win
     console.log('[ADAPT] Round complete. Tracker summary:', this.tracker.getSummary());
+    console.log('[ADAPT] Analyzer:', this.analyzer.analyze(this.tracker.getSummary()));
     this.time.delayedCall(2500, () => {
       this.hud.showStatus('PRESS R TO RETURN\nTO TITLE', '#7799bb');
     });
   }
 
   _onLose() {
+    this.tracker.recordRoundEnd();
     this.cameras.main.shake(600, 0.025);
     this.hud.showStatus('GAME OVER', '#ff3d71');
     console.log('[ADAPT] Game over. Tracker summary:', this.tracker.getSummary());
+    console.log('[ADAPT] Analyzer:', this.analyzer.analyze(this.tracker.getSummary()));
     this.time.delayedCall(2000, () => {
       this.hud.showStatus('PRESS R TO RETURN\nTO TITLE', '#7799bb');
     });

@@ -1,167 +1,213 @@
 /**
- * tracker.js — Behavior Tracker (Stage 2: Event Recording)
+ * tracker.js — Behavior Tracker (Stage 3: Discrete Metrics)
  *
- * CURRENT STATE (Stage 2):
- *   Records both positional snapshots (every Nth frame) and named combat events.
- *   Events are emitted by Player on every combat action.
- *   Data accumulates in history arrays for future analysis.
+ * Observes what the player does during a round.
+ * Does NOT decide how the enemy reacts.
  *
- * EVENT TYPES RECORDED:
- *   PLAYER_ATTACK          — Player pressed attack
- *   PLAYER_ATTACK_LEFT     — Attack aimed left
- *   PLAYER_ATTACK_RIGHT    — Attack aimed right
- *   PLAYER_ATTACK_UP       — Attack aimed up
- *   PLAYER_ATTACK_DOWN     — Attack aimed down
- *   PLAYER_DASH            — Player dashed
- *   PLAYER_MOVE            — Player is moving (velocity non-zero)
- *   PLAYER_HIT             — Player took damage
- *   PLAYER_MISS            — Player attacked and missed
- *   PLAYER_RUSH            — Player moved toward enemy
- *   PLAYER_RETREAT         — Player moved away from enemy
- *
- * FUTURE (Stage 3+):
- *   Will feed events into analyzer.js for pattern detection.
- *
- * PIPELINE POSITION:
- *   PLAYER → [BEHAVIOR TRACKER] → BEHAVIOR ANALYZER → ADAPTIVE AI
+ * Metrics Tracked:
+ * - Attacks (total, left, right, up, down, successful, missed)
+ * - Movement (time moving, time stationary, distance traveled)
+ * - Aggression (time close, time far, rushes, retreats)
+ * - Dash (count)
+ * - Combat (damage dealt, damage received)
+ * - Round Info (start, end, duration)
  */
-
-// All valid event type strings (for reference + validation)
-export const EVENT_TYPES = Object.freeze({
-  PLAYER_ATTACK:       'PLAYER_ATTACK',
-  PLAYER_ATTACK_LEFT:  'PLAYER_ATTACK_LEFT',
-  PLAYER_ATTACK_RIGHT: 'PLAYER_ATTACK_RIGHT',
-  PLAYER_ATTACK_UP:    'PLAYER_ATTACK_UP',
-  PLAYER_ATTACK_DOWN:  'PLAYER_ATTACK_DOWN',
-  PLAYER_DASH:         'PLAYER_DASH',
-  PLAYER_MOVE:         'PLAYER_MOVE',
-  PLAYER_HIT:          'PLAYER_HIT',
-  PLAYER_MISS:         'PLAYER_MISS',
-  PLAYER_RUSH:         'PLAYER_RUSH',
-  PLAYER_RETREAT:      'PLAYER_RETREAT',
-  PLAYER_HIDE:         'PLAYER_HIDE',
-});
 
 export class BehaviorTracker {
   constructor() {
-    /** Continuous positional snapshots (throttled) */
-    this.history = [];
-
-    /** Named combat events with timestamps */
-    this.events = [];
-
-    this._frameSkip = 0;
-    this._frameSkipMax = 6;
-
-    // Rolling counts per event type for quick statistics
-    this.eventCounts = {};
-    Object.values(EVENT_TYPES).forEach(t => { this.eventCounts[t] = 0; });
-  }
-
-  // ─── Snapshot Recording ──────────────────────────────────────────────────────
-
-  /**
-   * Record a positional snapshot of the player state.
-   * Throttled to every _frameSkipMax frames.
-   *
-   * @param {import('./player.js').Player} player
-   * @param {number} delta
-   */
-  record(player, delta) {
-    this._frameSkip++;
-    if (this._frameSkip < this._frameSkipMax) return;
-    this._frameSkip = 0;
-
-    const snapshot = {
-      t: Date.now(),
-      x: player.x,
-      y: player.y,
-      hp: player.health,
-      vx: player.sprite.body?.velocity.x || 0,
-      vy: player.sprite.body?.velocity.y || 0,
-      facing: player.facing,
-      isDashing: player.isDashing,
-      isAttacking: player.isAttacking,
-    };
-
-    this.history.push(snapshot);
-    if (this.history.length > 600) this.history.shift();
-  }
-
-  // ─── Event Recording ─────────────────────────────────────────────────────────
-
-  /**
-   * Record a named combat event emitted by the player.
-   * Called from Player._emit().
-   *
-   * @param {string} eventType - One of EVENT_TYPES
-   * @param {object} data - Additional event data
-   */
-  recordEvent(eventType, data = {}) {
-    const entry = {
-      t: Date.now(),
-      type: eventType,
-      ...data,
-    };
-
-    this.events.push(entry);
-    if (this.events.length > 1000) this.events.shift();
-
-    // Increment rolling counter
-    if (this.eventCounts[eventType] !== undefined) {
-      this.eventCounts[eventType]++;
-    }
-  }
-
-  // ─── Accessors ───────────────────────────────────────────────────────────────
-
-  getHistory()     { return [...this.history]; }
-  getEvents()      { return [...this.events]; }
-  getEventCounts() { return { ...this.eventCounts }; }
-
-  /**
-   * Get events of a specific type.
-   * @param {string} type
-   */
-  getEventsOfType(type) {
-    return this.events.filter(e => e.type === type);
-  }
-
-  /**
-   * Get a summary of combat behaviour (for future analyzer.js use).
-   * @returns {object}
-   */
-  getSummary() {
-    const counts = this.eventCounts;
-    const totalAttacks = counts.PLAYER_ATTACK || 0;
-    const hits = counts.PLAYER_HIT ? 0 : 0; // Note: PLAYER_HIT = player was hit, not landed
-    const misses = counts.PLAYER_MISS || 0;
-    const rushes = counts.PLAYER_RUSH || 0;
-    const retreats = counts.PLAYER_RETREAT || 0;
-
-    return {
-      totalAttacks,
-      misses,
-      rushes,
-      retreats,
-      aggressionRatio: (rushes + retreats) > 0 ? rushes / (rushes + retreats) : 0.5,
-      favoriteDirection: this._dominantAttackDir(),
-    };
-  }
-
-  _dominantAttackDir() {
-    const dirs = ['LEFT', 'RIGHT', 'UP', 'DOWN'];
-    let max = 0, dominant = 'RIGHT';
-    dirs.forEach(d => {
-      const c = this.eventCounts[`PLAYER_ATTACK_${d}`] || 0;
-      if (c > max) { max = c; dominant = d; }
-    });
-    return dominant;
+    this.reset();
   }
 
   reset() {
-    this.history = [];
-    this.events = [];
-    Object.values(EVENT_TYPES).forEach(t => { this.eventCounts[t] = 0; });
+    // Attack metrics
+    this.attacks = {
+      total: 0,
+      left: 0,
+      right: 0,
+      up: 0,
+      down: 0,
+      hits: 0,
+      misses: 0,
+    };
+
+    // Movement metrics
+    this.movement = {
+      timeMoving: 0,       // seconds
+      timeStationary: 0,   // seconds
+      distanceTraveled: 0, // pixels
+    };
+
+    // Aggression metrics
+    this.aggression = {
+      timeClose: 0,        // seconds (< 150px)
+      timeFar: 0,          // seconds (> 300px)
+      rushes: 0,
+      retreats: 0,
+    };
+
+    // Defense & Dash
+    this.defense = {
+      dashCount: 0,
+      timeHiding: 0,       // (unused for now, ready for obstacles)
+    };
+
+    // Combat
+    this.combat = {
+      damageDealt: 0,
+      damageReceived: 0,
+    };
+
+    // Round Info
+    this.round = {
+      startTime: 0,
+      endTime: 0,
+      duration: 0, // seconds
+      isActive: false,
+    };
+
+    // Internal state for continuous tracking
+    this._lastPlayerPos = { x: 0, y: 0 };
+    this._prevDistanceToEnemy = 0;
+  }
+
+  // ─── Round Management ────────────────────────────────────────────────────────
+
+  recordRoundStart() {
+    this.round.startTime = Date.now();
+    this.round.isActive = true;
+  }
+
+  recordRoundEnd() {
+    this.round.endTime = Date.now();
+    this.round.duration = (this.round.endTime - this.round.startTime) / 1000;
+    this.round.isActive = false;
+  }
+
+  // ─── Continuous Tracking (Called every frame) ────────────────────────────────
+
+  /**
+   * @param {number} delta - Frame time in ms
+   * @param {import('./player.js').Player} player
+   * @param {import('./enemy.js').Enemy} enemy
+   */
+  update(delta, player, enemy) {
+    if (!this.round.isActive || !player || !player.alive) return;
+
+    const dtSec = delta / 1000;
+
+    // Movement
+    const isMoving = Math.abs(player.sprite.body.velocity.x) > 0 || Math.abs(player.sprite.body.velocity.y) > 0;
+    if (isMoving) {
+      this.movement.timeMoving += dtSec;
+    } else {
+      this.movement.timeStationary += dtSec;
+    }
+
+    // Distance traveled
+    if (this._lastPlayerPos.x !== 0 || this._lastPlayerPos.y !== 0) {
+      const dx = player.x - this._lastPlayerPos.x;
+      const dy = player.y - this._lastPlayerPos.y;
+      this.movement.distanceTraveled += Math.sqrt(dx * dx + dy * dy);
+    }
+    this._lastPlayerPos.x = player.x;
+    this._lastPlayerPos.y = player.y;
+
+    // Proximity to enemy
+    if (enemy && enemy.alive) {
+      const ex = enemy.x - player.x;
+      const ey = enemy.y - player.y;
+      const dist = Math.sqrt(ex * ex + ey * ey);
+
+      if (dist < 150) this.aggression.timeClose += dtSec;
+      if (dist > 300) this.aggression.timeFar += dtSec;
+
+      this._prevDistanceToEnemy = dist;
+    }
+  }
+
+  // ─── Discrete Events ─────────────────────────────────────────────────────────
+
+  recordAttack(direction) {
+    this.attacks.total++;
+    const dir = direction.toLowerCase();
+    if (this.attacks[dir] !== undefined) {
+      this.attacks[dir]++;
+    }
+  }
+
+  recordHit() {
+    this.attacks.hits++;
+  }
+
+  recordMiss() {
+    this.attacks.misses++;
+  }
+
+  recordDamageDealt(amount) {
+    this.combat.damageDealt += amount;
+  }
+
+  recordDamageReceived(amount) {
+    this.combat.damageReceived += amount;
+  }
+
+  recordDash() {
+    this.defense.dashCount++;
+  }
+
+  recordRush() {
+    this.aggression.rushes++;
+  }
+
+  recordRetreat() {
+    this.aggression.retreats++;
+  }
+
+  recordHide() {
+    // Currently no obstacles, but hook is ready
+  }
+
+  // ─── Reporting ───────────────────────────────────────────────────────────────
+
+  /**
+   * Returns structured summary for the BehaviorAnalyzer
+   */
+  getSummary() {
+    // Calculate current round duration if still active
+    let currentDuration = this.round.duration;
+    if (this.round.isActive) {
+      currentDuration = (Date.now() - this.round.startTime) / 1000;
+    }
+
+    return {
+      // Attacks
+      totalAttacks: this.attacks.total,
+      leftAttacks: this.attacks.left,
+      rightAttacks: this.attacks.right,
+      upAttacks: this.attacks.up,
+      downAttacks: this.attacks.down,
+      hits: this.attacks.hits,
+      misses: this.attacks.misses,
+
+      // Movement & Dash
+      timeMoving: this.movement.timeMoving,
+      timeStationary: this.movement.timeStationary,
+      distanceTraveled: this.movement.distanceTraveled,
+      dashCount: this.defense.dashCount,
+
+      // Aggression
+      timeClose: this.aggression.timeClose,
+      timeFar: this.aggression.timeFar,
+      rushCount: this.aggression.rushes,
+      retreatCount: this.aggression.retreats,
+      hidingTime: this.defense.timeHiding,
+
+      // Combat
+      damageDealt: this.combat.damageDealt,
+      damageReceived: this.combat.damageReceived,
+
+      // Round Info
+      roundDuration: currentDuration,
+    };
   }
 }
