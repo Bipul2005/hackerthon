@@ -1,57 +1,116 @@
 /**
- * adaptiveAI.js — Adaptive AI Controller (PLANNED — Stage 2+)
+ * adaptiveAI.js — Adaptive Enemy AI (Stage 5)
  *
- * STATUS: Scaffold / Placeholder
- * This module is not active in Stage 1.
- *
- * PURPOSE:
- *   The core intelligence module. Takes analyzed behavior profiles from
- *   analyzer.js and memory from memory.js, then selects and configures
- *   the enemy's current strategy.
- *
- * PLANNED STRATEGY TYPES:
- *   - Aggressive  : Charge directly, high speed, frequent attacks
- *   - Flanking    : Circle the player to attack from the side/behind
- *   - Retreating  : Bait the player into committing, then punish
- *   - Unpredictable: Randomize patterns to defeat pattern-detecting players
- *   - Pincer      : (Multi-enemy) coordinate to surround
- *
- * STRATEGY SELECTION LOGIC (Planned):
- *   If player tends to retreat → use Aggressive strategy
- *   If player tends to charge  → use Retreating/Flanking strategy
- *   If player is unpredictable → use Unpredictable strategy
- *
- * PIPELINE POSITION:
- *   BEHAVIOR ANALYZER → [ADAPTIVE AI] → AI MEMORY + ENEMY STRATEGY
+ * Uses the BehaviorTracker summary and BehaviorAnalyzer output to select a
+ * rule‑based strategy for the enemy. The strategy is then applied to the
+ * enemy instance via `enemy.applyStrategy`.
  */
 
+import { BehaviorAnalyzer } from './analyzer.js';
+
 export class AdaptiveAI {
-  constructor() {
-    this.currentStrategy = 'default';
-    this.strategyHistory = [];
-  }
-
   /**
-   * Select the best strategy based on the current behavior profile.
-   *
-   * @param {object} profile - From BehaviorAnalyzer.analyze()
-   * @param {object} memory  - From AIMemory.getProfile()
-   * @returns {object} Strategy object to pass to Enemy.applyStrategy()
-   *
-   * TODO (Stage 2): Implement real strategy selection logic
+   * @param {import('./tracker.js').BehaviorTracker} tracker
+   * @param {import('./enemy.js').Enemy} enemy
    */
-  selectStrategy(profile, memory) {
-    // Placeholder — always returns default strategy
-    return {
-      name: 'default',
-      speedMultiplier: 1.0,
-      attackPattern: 'direct',
-      movementPattern: 'chase',
-    };
+  constructor(tracker, enemy) {
+    this.tracker = tracker;
+    this.enemy = enemy;
+    this.analyzer = new BehaviorAnalyzer();
+    this.currentStrategy = null; // { name, confidence, reason }
   }
 
+  /** Analyse the latest tracker data */
+  analyzePlayer() {
+    const summary = this.tracker.getSummary();
+    this.analysis = this.analyzer.analyze(summary);
+    this.summary = summary;
+  }
+
+  /** Choose the most relevant strategy based on analysis */
+  chooseStrategy() {
+    if (!this.analysis) return;
+    const { metrics } = this.analysis;
+    const s = this.summary;
+    const strategies = [];
+
+    // 1. Directional protection
+    if (metrics.preferredDirection === 'LEFT' && metrics.directionConfidence >= 0.6) {
+      strategies.push({
+        name: 'PROTECT_LEFT',
+        confidence: metrics.directionConfidence,
+        reason: `Player prefers LEFT attacks (${(metrics.directionConfidence * 100).toFixed(0)}%).`,
+        speedMultiplier: 0.9,
+      });
+    }
+    if (metrics.preferredDirection === 'RIGHT' && metrics.directionConfidence >= 0.6) {
+      strategies.push({
+        name: 'PROTECT_RIGHT',
+        confidence: metrics.directionConfidence,
+        reason: `Player prefers RIGHT attacks (${(metrics.directionConfidence * 100).toFixed(0)}%).`,
+        speedMultiplier: 0.9,
+      });
+    }
+
+    // 2. Rush detection
+    if (s.rushCount > s.retreatCount * 2 && s.rushCount > 3) {
+      const conf = Math.min(1, s.rushCount / (s.rushCount + s.retreatCount + 1));
+      strategies.push({
+        name: 'ANTI_RUSH',
+        confidence: conf,
+        reason: 'Player frequently rushes toward the enemy.',
+        speedMultiplier: 0.8,
+      });
+    }
+
+    // 3. Dash detection (dash per minute)
+    const mins = (s.roundDuration || 1) / 60;
+    const dpm = s.dashCount / mins;
+    if (dpm > 10) {
+      const conf = Math.min(1, (dpm - 10) / 20);
+      strategies.push({
+        name: 'ANTI_DASH',
+        confidence: conf,
+        reason: 'Player uses dash frequently.',
+        speedMultiplier: 0.85,
+      });
+    }
+
+    // 4. Defensive / far behaviour
+    if (s.timeFar / (s.timeClose + s.timeFar || 1) > 0.6) {
+      const conf = s.timeFar / (s.timeClose + s.timeFar);
+      strategies.push({
+        name: 'ANTI_DEFENSIVE',
+        confidence: conf,
+        reason: 'Player stays far away or hides often.',
+      });
+    }
+
+    // Pick the strategy with highest confidence
+    if (strategies.length === 0) {
+      this.currentStrategy = { name: 'NONE', confidence: 0, reason: 'No dominant behaviour detected.' };
+    } else {
+      strategies.sort((a, b) => b.confidence - a.confidence);
+      this.currentStrategy = strategies[0];
+    }
+  }
+
+  /** Apply the selected strategy to the enemy */
+  applyStrategy() {
+    if (!this.enemy) return;
+    if (!this.currentStrategy) return;
+    this.enemy.applyStrategy(this.currentStrategy);
+  }
+
+  /** Public getters */
+  getCurrentStrategy() { return this.currentStrategy; }
+  getConfidence() { return this.currentStrategy?.confidence || 0; }
+  getReason() { return this.currentStrategy?.reason || ''; }
+
+  /** Reset for a new round */
   reset() {
-    this.currentStrategy = 'default';
-    this.strategyHistory = [];
+    this.currentStrategy = null;
+    this.analysis = null;
+    this.summary = null;
   }
 }

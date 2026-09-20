@@ -266,10 +266,19 @@ export class Enemy {
    * @param {object} strategyObj
    */
   applyStrategy(strategyObj) {
-    // TODO (Stage 3): implement adaptive strategy application
     this.strategy = strategyObj;
     if (strategyObj.speedMultiplier) {
       this.speed = ENEMY_CONFIG.speed * strategyObj.speedMultiplier;
     }
+    // Visual cue for current strategy
+    const tintMap = {
+      PROTECT_LEFT: 0x3333ff,
+      PROTECT_RIGHT: 0xff33ff,
+      ANTI_RUSH: 0x00ff00,
+      ANTI_DASH: 0xffff00,
+      ANTI_DEFENSIVE: 0xff0000,
+    };
+    const tint = tintMap[strategyObj.name] || 0xffffff;
+    this.sprite.setTint(tint);
   }
 }

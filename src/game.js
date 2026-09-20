@@ -22,6 +22,7 @@ import { Enemy } from './enemy.js';
 import { HUD } from './ui.js';
 import { BehaviorTracker } from './tracker.js';
 import { BehaviorAnalyzer } from './analyzer.js';
+import { AdaptiveAI } from './adaptiveAI.js';
 
 // ================================================================
 //  START SCENE
@@ -192,6 +193,9 @@ export class GameScene extends Phaser.Scene {
     // ---- Spawn enemy (center-right) ----
     this.enemy = new Enemy(this, W * 0.72, H / 2);
 
+    // ---- Adaptive AI ----
+    this.adaptiveAI = new AdaptiveAI(this.tracker, this.enemy);
+
     // ---- HUD ----
     this.hud = new HUD(this, this.round);
 
@@ -294,7 +298,14 @@ export class GameScene extends Phaser.Scene {
       this._analyzeTimer = 0;
       const summary = this.tracker.getSummary();
       const analysis = this.analyzer.analyze(summary);
-      this.hud.updateDebugPanel(summary, analysis);
+      // Adaptive AI processing
+      this.adaptiveAI.analyzePlayer();
+      this.adaptiveAI.chooseStrategy();
+      this.adaptiveAI.applyStrategy();
+      // Pass strategy info to HUD via analysis object
+      const strategyInfo = this.adaptiveAI.getCurrentStrategy();
+      const analysisWithStrategy = { ...analysis, strategyInfo };
+      this.hud.updateDebugPanel(summary, analysisWithStrategy);
     }
 
     // Update HUD
@@ -316,9 +327,12 @@ export class GameScene extends Phaser.Scene {
   _onWin() {
     this.tracker.recordRoundEnd();
     this.hud.showStatus('ROUND CLEAR', '#00e5ff');
+    // Reset Adaptive AI for next round
+    this.adaptiveAI.reset();
     // Print tracker summary on win
     console.log('[ADAPT] Round complete. Tracker summary:', this.tracker.getSummary());
     console.log('[ADAPT] Analyzer:', this.analyzer.analyze(this.tracker.getSummary()));
+    console.log('[ADAPT] Strategy selected:', this.adaptiveAI.getCurrentStrategy());
     this.time.delayedCall(2500, () => {
       this.hud.showStatus('PRESS R TO RETURN\nTO TITLE', '#7799bb');
     });
@@ -328,8 +342,11 @@ export class GameScene extends Phaser.Scene {
     this.tracker.recordRoundEnd();
     this.cameras.main.shake(600, 0.025);
     this.hud.showStatus('GAME OVER', '#ff3d71');
+    // Reset Adaptive AI for next round
+    this.adaptiveAI.reset();
     console.log('[ADAPT] Game over. Tracker summary:', this.tracker.getSummary());
     console.log('[ADAPT] Analyzer:', this.analyzer.analyze(this.tracker.getSummary()));
+    console.log('[ADAPT] Strategy selected:', this.adaptiveAI.getCurrentStrategy());
     this.time.delayedCall(2000, () => {
       this.hud.showStatus('PRESS R TO RETURN\nTO TITLE', '#7799bb');
     });
